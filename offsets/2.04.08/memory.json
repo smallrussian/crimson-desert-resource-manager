@@ -1,17 +1,20 @@
 {
   "gameVersion": "2.04.08",
-  "checked": "2026-11-11",
+  "checked": "2026-11-12",
   "evidence": "docs/re-notes/live-memory.md",
-  "status": "Found 5 of 5 reserves by value in sessions one and three (2026-11-11). A session-two miss is attributed to the research scanner skipping unreadable blocks.",
+  "status": "Item objects found by class pointer and owner chain on 2026-11-12 and confirmed after a restart (second session, same RVAs and offsets). Balance marker added after a gain (+24 armaments) produced a positive pending object. Replaces the 2026-11-11 'pointerRva 0x5AB9800' signature, which was a variable field.",
   "reserveObject": {
-    "comment": "Heap object per camp reserve. Fields are relative to the vtable-like pointer that follows the item key.",
-    "pointerRva": "0x5AB9800",
-    "assumedImageBase": "0x140000000",
-    "keyOffset": -4,
-    "zeroOffset": -8,
-    "amountOffset": -16,
-    "headerOffset": -24,
+    "comment": "Heap item object per camp reserve. Offsets are from the object start (its class pointer). All RVAs are relative to the exe's load address.",
+    "classRva": "0x591EA30",
+    "parentOffset": "0x28",
+    "ownerClassRva": "0x5A50FA0",
+    "rootClassRva": "0x59FCB20",
+    "headerOffset": "0xD0",
     "headerBytes": "0100000001000000",
-    "itemKeys": { "funds": 11, "food": 12, "timber": 13, "stone": 14, "armaments": 15 }
+    "amountOffset": "0xD8",
+    "keyOffset": "0xE4",
+    "balanceListOffset": "0x30",
+    "itemKeys": { "funds": 11, "food": 12, "timber": 13, "stone": 14, "armaments": 15 },
+    "rules": "Count only objects whose parent has ownerClassRva and whose grandparent has rootClassRva (display copies have no parent). Of those, the balance is the object with a non-empty list at balanceListOffset (pointer, then two non-zero u32s); pending changes (negative for costs, positive for gains) and zero placeholders have zeros there. Checked 2026-11-12 in two sessions."
   }
 }

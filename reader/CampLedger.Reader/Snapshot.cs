@@ -31,6 +31,14 @@ public sealed class Reserves
 
     public bool SameAs(Reserves o) =>
         Food == o.Food && Funds == o.Funds && Stone == o.Stone && Timber == o.Timber && Armaments == o.Armaments;
+
+    [JsonIgnore]
+    public bool Any => Food.HasValue || Funds.HasValue || Stone.HasValue || Timber.HasValue || Armaments.HasValue;
+
+    /// <summary>True when a value known here differs from <paramref name="o"/>. Unknown (null) values here are ignored.</summary>
+    public bool KnownDiffers(Reserves o) =>
+        (Food.HasValue && Food != o.Food) || (Funds.HasValue && Funds != o.Funds) || (Stone.HasValue && Stone != o.Stone)
+        || (Timber.HasValue && Timber != o.Timber) || (Armaments.HasValue && Armaments != o.Armaments);
 }
 
 public sealed class Workers

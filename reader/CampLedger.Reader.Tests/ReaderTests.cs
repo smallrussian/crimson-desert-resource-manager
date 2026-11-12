@@ -166,6 +166,35 @@ public class ReaderTests
     }
 
     [Fact]
+    public void Live_reserve_uses_the_balance_object_only()
+    {
+        // Observed 2026-11-12: funds balance 51756 beside a pending cost of -20000; armaments balance 3207 beside a
+        // pending gain of +24 (a positive pending object, which the sign alone cannot tell apart).
+        Assert.Equal(51756L, MemorySource.Resolve(new[] { (-20000L, false), (51756L, true) }));
+        Assert.Equal(3207L, MemorySource.Resolve(new[] { (24L, false), (3207L, true) }));
+        Assert.Equal(0L, MemorySource.Resolve(new[] { (0L, true), (0L, false) }));
+    }
+
+    [Fact]
+    public void Live_reserve_is_unknown_without_one_agreeing_balance()
+    {
+        Assert.Null(MemorySource.Resolve(new[] { (31746L, true), (71756L, true) }));
+        Assert.Null(MemorySource.Resolve(new[] { (24L, false), (3207L, false) }));
+        Assert.Null(MemorySource.Resolve(Array.Empty<(long, bool)>()));
+        Assert.Null(MemorySource.Resolve(new[] { (-5L, true) }));
+        Assert.Null(MemorySource.Resolve(new[] { (5_000_000_000_000L, true) }));
+    }
+
+    [Fact]
+    public void Partial_live_reserves_compare_only_known_values()
+    {
+        var saved = new Reserves { Food = 11364, Funds = 31746, Stone = 64161, Timber = 3015, Armaments = 3183 };
+        Assert.False(new Reserves { Funds = 31746 }.KnownDiffers(saved));
+        Assert.True(new Reserves { Funds = 71756 }.KnownDiffers(saved));
+        Assert.False(new Reserves().Any);
+    }
+
+    [Fact]
     public void Names_and_regions_resolve()
     {
         var c = CatalogueFixture();

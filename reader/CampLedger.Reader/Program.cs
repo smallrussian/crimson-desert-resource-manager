@@ -40,8 +40,22 @@ public static class Program
                 }
                 return Watch(stay: args.Contains("--stay"));
             }
+            case "memory":
+            {
+                // One-shot live read, for checking a memory layout against what the game shows.
+                using var game = FindGame();
+                if (game is null) { Console.Error.WriteLine("game not running"); return 1; }
+                using var memory = new MemorySource(game, GameVersion.Detect(game));
+                if (memory.Problem is not null) { Console.Error.WriteLine("unavailable: " + memory.Problem); return 1; }
+                var sw = Stopwatch.StartNew();
+                int n = memory.Locate();
+                var r = memory.ReadReserves();
+                Console.WriteLine($"located {n} of 5 in {sw.Elapsed.TotalSeconds:F1} s");
+                Console.WriteLine(JsonSerializer.Serialize(r, Json));
+                return r is null ? 1 : 0;
+            }
             default:
-                Console.Error.WriteLine("usage: CampLedgerReader snapshot [save file] | watch [--stay]");
+                Console.Error.WriteLine("usage: CampLedgerReader snapshot [save file] | watch [--stay] | memory");
                 return 2;
         }
     }
@@ -119,18 +133,22 @@ public static class Program
                 if (memory.Problem is null)
                 {
                     Reserves? live = memory.ReadReserves();
-                    if (live is null && DateTime.UtcNow >= nextLocate)
+                    // Nothing located: rescan after a minute. Partly located: rescan every 5 minutes, since a scan
+                    // costs ~35 s of one CPU core.
+                    if ((live is null || !live.Complete) && DateTime.UtcNow >= nextLocate)
                     {
                         var sw = Stopwatch.StartNew();
                         int n = memory.Locate();
-                        Log($"memory scan: located {n} of 5 reserves in {sw.Elapsed.TotalSeconds:F1} s");
-                        nextLocate = DateTime.UtcNow + TimeSpan.FromSeconds(60);
                         live = memory.ReadReserves();
+                        Log($"memory scan: located {n} of 5 reserves in {sw.Elapsed.TotalSeconds:F1} s; " +
+                            $"readable now: {Readable(live)}");
+                        nextLocate = DateTime.UtcNow + TimeSpan.FromSeconds(live is null ? 60 : 300);
                     }
-                    if (live is not null && live.Complete && (lastWritten is null || !live.SameAs(lastWritten)))
+                    if (live is not null && live.Any && (lastWritten is null || live.KnownDiffers(lastWritten)))
                     {
                         lastWritten = live;
                         var unknowns = new List<string> { "reserves are live from process memory" };
+                        if (!live.Complete) unknowns.Add("some reserves could not be read from memory this time (null)");
                         if (lastSave is null) unknowns.Add("no save read yet: missions and clock unknown");
                         else unknowns.Add($"missions, workers and clock are from the save read at {lastSave.CapturedAt:u}");
                         Write(outFile, new Snapshot
@@ -176,6 +194,12 @@ public static class Program
             return (null, e.Message);
         }
     }
+
+    static string Readable(Reserves? r) =>
+        r is null ? "none"
+        : string.Join(", ", new[] { ("food", r.Food), ("funds", r.Funds), ("stone", r.Stone), ("timber", r.Timber),
+                                    ("armaments", r.Armaments) }.Where(x => x.Item2.HasValue).Select(x => x.Item1))
+          is { Length: > 0 } s ? s : "none (ambiguous)";
 
     static bool Changed(Snapshot a, Snapshot b) =>
         !a.Reserves.SameAs(b.Reserves) || a.InGameClock != b.InGameClock || a.Missions.Count != b.Missions.Count;
