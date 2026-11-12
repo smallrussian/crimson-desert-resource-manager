@@ -72,7 +72,6 @@ public sealed class SaveSource : ISource
     {
         var unknowns = new List<string>
         {
-            "mission durations: not found in game data yet",
             "mission rewards are base amounts; conversion, skill and comrade bonuses are not applied",
         };
         if (_catalogue is null)
@@ -155,6 +154,8 @@ public sealed class SaveSource : ISource
         m.Region = Catalogue.RegionOf(op.InternalName);
         m.WorkersMin = op.MembersMin;
         m.WorkersMax = op.MembersMax;
+        m.DurationHours = op.DurationHours;
+        if (op.DurationHours is null) unknowns.Add($"{m.Name}: duration not found in game data");
 
         Reserves? cost = Zero();
         foreach (var (item, amount) in op.Cost)

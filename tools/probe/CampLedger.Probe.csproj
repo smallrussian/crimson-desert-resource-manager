@@ -7,4 +7,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyName>cdprobe</AssemblyName>
   </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\reader\CampLedger.Reader\CampLedger.Reader.csproj" />
+  </ItemGroup>
 </Project>

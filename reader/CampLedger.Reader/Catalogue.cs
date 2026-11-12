@@ -6,7 +6,8 @@ namespace CampLedger.Reader;
 /// <summary>A camp dispatch mission as defined in the game's static data (not per-save state).</summary>
 public sealed record OperationInfo(
     uint Key, uint NodeKey, string? InternalName, string? Category, string? Role,
-    int MembersMin, int MembersMax, IReadOnlyList<(uint Item, long Amount)> Cost, IReadOnlyList<uint> DropSets);
+    int MembersMin, int MembersMax, IReadOnlyList<(uint Item, long Amount)> Cost, IReadOnlyList<uint> DropSets,
+    double? DurationHours = null);
 
 public sealed record DropItem(uint Item, long Min, long Max, double Chance);
 
@@ -138,10 +139,24 @@ public sealed class Catalogue
                 uint v = U32(rec, q);
                 if (v > 0 && _dropKeys.Contains(v)) drops.Add(v);
             }
-            return new OperationInfo(key, node, NodeName(rec, t + 20 + catLen), category, Roles[group], min, max, cost, drops);
+            return new OperationInfo(key, node, NodeName(rec, t + 20 + catLen), category, Roles[group], min, max, cost, drops,
+                                     Duration(rec, keyAt));
         }
         // No members marker: combat-style records. Keep the cost, leave the rest unknown.
         return new OperationInfo(key, node, null, null, Roles[group], 0, 0, cost, Array.Empty<uint>());
+    }
+
+    /// <summary>
+    /// Mission duration: u32 in-game hours x 10 (the save's progress unit), 90 bytes before the operation key, with
+    /// a 0x02 byte 5 bytes before it. Matched the owner's screen for South Quarry (12 h), Burnhand Quarry (22 h) and
+    /// Oakenshield Manor guard (18 h) on 2026-11-12. Null when the layout does not hold (e.g. a node's first record).
+    /// </summary>
+    internal static double? Duration(ReadOnlySpan<byte> rec, int keyAt)
+    {
+        int at = keyAt - 90;
+        if (at < 5 || rec[at - 5] != 0x02) return null;
+        uint tenths = U32(rec, at);
+        return tenths is 0 or > 10_000 ? null : tenths / 10.0;
     }
 
     static string? NodeName(ReadOnlySpan<byte> rec, int from)

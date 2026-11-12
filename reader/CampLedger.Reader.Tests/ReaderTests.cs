@@ -113,9 +113,12 @@ public class ReaderTests
         return r.Done();
     }
 
-    static byte[] OperationRecord(uint opKey, uint dropKey)
+    static byte[] OperationRecord(uint opKey, uint dropKey, uint? durationTenths = null)
     {
-        return new Bytes()
+        var b = new Bytes();
+        // Duration sits 90 bytes before the key, behind a 0x02 byte (docs/re-notes/mission-static-data.md).
+        if (durationTenths is uint d) b.Zero(10).U8(2).Zero(4).U32(d).Zero(86);
+        return b
             .U32(opKey).Zero(9).Str("123456789012345678")
             .U16(0x4243).U32(2)
             .U32(11).Zero(8).U64(1300).Zero(10)
@@ -126,9 +129,9 @@ public class ReaderTests
             .Done();
     }
 
-    static Catalogue CatalogueFixture(bool corruptDrop = false)
+    static Catalogue CatalogueFixture(bool corruptDrop = false, uint? durationTenths = null)
     {
-        var nodes = TableOf((1000070, OperationRecord(42107545, 1015091)));
+        var nodes = TableOf((1000070, OperationRecord(42107545, 1015091, durationTenths)));
         var drops = TableOf((1015091, DropRecord(1015091,
             DropEntry(14, 1400), DropEntry(1000555, 5, corrupt: corruptDrop), DropEntry(1001241, 1, rate: 150_000))));
         var items = TableOf((1000555, new Bytes().Str("Fine_Stone").Done()));
@@ -147,6 +150,19 @@ public class ReaderTests
         Assert.Equal((5, 7), (op.MembersMin, op.MembersMax));
         Assert.Equal(new[] { (11u, 1300L), (12u, 140L) }, op.Cost);
         Assert.Equal(new[] { 1015091u }, op.DropSets);
+    }
+
+    [Fact]
+    public void Operation_duration_is_read_in_tenths_of_an_hour()
+    {
+        // South Quarry stone: 120 -> 12 h, as shown in game.
+        Assert.Equal(12.0, CatalogueFixture(durationTenths: 120).Operation(42107545)!.DurationHours);
+    }
+
+    [Fact]
+    public void Operation_duration_is_unknown_without_its_marker()
+    {
+        Assert.Null(CatalogueFixture().Operation(42107545)!.DurationHours);
     }
 
     [Fact]

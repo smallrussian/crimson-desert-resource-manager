@@ -177,7 +177,7 @@ Record `Node_Dem_BurnhandQuarry_Work_Stone_Tier2`: Funds 2,500, Food 270, `N`=5,
   the mission mainly produces.
 - The second cost entry is not on the same 24-byte grid as the first (the first parse misread it). The
   amounts are present; the entry layout needs fixing.
-- **Duration is not found.** No 22, 1,320, 79,200 or float 22.0 in or near the Burnhand record. It may be
+- **Duration is not found.** (Superseded 2026-11-12: found 90 bytes before the operation key; see "Mission durations" below.) No 22, 1,320, 79,200 or float 22.0 in or near the Burnhand record. It may be
   derived (for example from distance to the camp) or live in another table.
 - Conversion shows +0% here. Burnhand is in Demeniss and the save has no `Religion_Demenissian` level,
   while Hernand missions show +40% with `Religion_Hernand` 20. That fits the religion guess, but the screen
@@ -200,7 +200,7 @@ Record `Node_Dem_BurnhandQuarry_Work_Stone_Tier2`: Funds 2,500, Food 270, `N`=5,
   Nas river Fishing Dock 16, Glenbright Farm 16, Southern Quarry 12.
 - A byte comparison of the Burnhand, South Quarry and Pervin Quarry records found no field that reads as
   12 vs 22. Duration is probably derived (distance from camp is the obvious candidate) or held in another
-  table. **Not found.** Until it is, duration has to be reference data entered per mission.
+  table. **Not found.** (Superseded 2026-11-12: it is in the operation record; see "Mission durations" below.)
 
 ## Bonus rules from a public wiki (2026-11-11)
 
@@ -250,3 +250,25 @@ reward all match.
   no per-mission duration has been identified in the record yet.
 - Decode the record properly from the table header instead of pattern matching.
 - DLC table.
+
+## Mission durations (2026-11-12, game 2.04.08)
+
+**Found in static data, not per-save state.** Each operation record in `factionnode` has its duration as a
+`u32` of in-game hours x 10 (the same unit as the save's `_operationCurrentProgress`), **90 bytes before the
+operation key**, with a `0x02` byte 5 bytes before the value. Because names sit at the end of each operation
+record, the value looks like it trails the previous mission's name; it belongs to the next operation.
+
+How it was found: the owner-reported durations (South Quarry stone 12 h, Burnhand Quarry stone 22 h) were
+searched in their location records under common encodings (h, h x 10, min, s, ms; integer and float). Each
+record had exactly one match, `u32 h x 10`: 120 and 220. Both sit 90 bytes before their operation key.
+
+Checks:
+- South Quarry stone 12 h and Burnhand Quarry stone 22 h (owner's screen, earlier session).
+- Oakenshield Manor guard: 18 h in data; owner saw 15 h 10 min remaining when elapsed was about 2.8 h
+  (save progress 1.94 h, later 3.94 h). 18 - 15.17 = 2.83: consistent.
+- Wiki figures (thegameswiki.com, Dispatch Missions): the first camp expansion takes "roughly 17" in-game hours
+  (data: ExpandCamp_Lv2 18 h); short missions about 8 h (data: 20 missions at 8 h).
+- All 309 missions with a members range get a duration (2 h to 360 h; most 4-24 h).
+
+Not checked: whether bonuses, camp level or skills shorten durations. The wiki mentions none.
+Live memory was searched first and did not show the total next to the running operation; not needed now.
