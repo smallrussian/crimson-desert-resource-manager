@@ -223,6 +223,27 @@ located in the save; until it is, it is a user setting.
 
 The wiki has no per-mission duration table. Other guides found by search give only examples.
 
+## Structured layouts (2026-11-12, replaces the pattern search above)
+
+Checked on all owner-verified missions (four Hernand missions plus Burnhand Quarry): cost, members and base
+reward all match.
+
+- **Every static table** has a header file: `u16 count`, then `count x (u32 key, u32 offset)`. The DLC
+  folder `dlc/dlc_01/0008` has its own copies (`<table>.dlc_01`); same header layout; DLC records win.
+  Body vs header is told apart by the header's exact size, not by the extension index.
+- **Operation cost entries are 30 bytes**, not 24: `u32 item, 8 bytes, u64 amount, 10 bytes`. The earlier
+  24-byte reading misread every second cost (e.g. Burnhand's 270 Food).
+- **Drop-set record** (`dropsetinfo`): `u32 len + comment` (e.g. `Item(Money_Camp_Stone,3000);...`), then
+  `u32 key`, 13 bytes, `u32 entry count` at key+0x11, entries of 0x40 bytes from key+0x15:
+  `u8 1, u32 item, ..., u32 chance (1,000,000 = 100%) at +0x1A, u64 min at +0x2A, u64 max at +0x32,
+  FF FF at +0x3A, u32 item again at +0x3C`. The repeated item key is the self-check.
+- Burnhand's reward reads 3,000 Stone + Fine_Stone x5 + IronStone x3, matching the owner's screen ("3K").
+- Fishing has a second drop set of seven fish items at 14-15% each: the personal-storage reward.
+- 1,012 operation records; 309 with a members range and a `Node_` name. The rest are combat-style records
+  without a members marker. Camp "Build" missions reward entries that are not reserves (e.g. 150 of
+  key 600, which is also the `Contribution_Graymane` sub-level key; unconfirmed).
+- Character records (`characterinfo`) start with a length-prefixed internal name; so do item records.
+
 ## Not done
 - Rewards, duration, skill requirements, display names (localisation lookup), which missions are unlocked
   or available to the player. The save's progress rate suggested the same 36,000,000 ticks for all four;

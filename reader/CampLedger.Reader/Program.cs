@@ -48,7 +48,9 @@ public static class Program
 
     static int SnapshotOnce(string? file)
     {
-        var source = new SaveSource(gameVersion: GameVersion.Detect(FindGame()));
+        using var game = FindGame();
+        var (catalogue, problem) = LoadCatalogue(game);
+        var source = new SaveSource(gameVersion: GameVersion.Detect(game), catalogue: catalogue, catalogueProblem: problem);
         var result = file is null ? source.Read() : source.ReadFile(file);
         if (result is SourceResult.Ok ok)
         {
@@ -80,7 +82,9 @@ public static class Program
             if (version is null || !GameVersion.Supported.Contains(version))
                 Log("this game version has not been checked; snapshots are still read from the save, by field name");
 
-            var save = new SaveSource(gameVersion: version);
+            var (catalogue, problem) = LoadCatalogue(game);
+            Log(catalogue is null ? "game data not loaded: " + problem : $"game data loaded: {catalogue.OperationCount} missions");
+            var save = new SaveSource(gameVersion: version, catalogue: catalogue, catalogueProblem: problem);
             using var memory = new MemorySource(game, version);
             if (memory.Problem is not null) Log("live memory unavailable: " + memory.Problem);
 
@@ -156,6 +160,21 @@ public static class Program
         var r = snapshot.Reserves;
         Log($"snapshot ({snapshot.Source}): food {r.Food}, funds {r.Funds}, stone {r.Stone}, timber {r.Timber}, " +
             $"armaments {r.Armaments}, {snapshot.Missions.Count} missions");
+    }
+
+    static (Catalogue?, string?) LoadCatalogue(Process? game)
+    {
+        string? install = GameInstall.Find(game);
+        if (install is null) return (null, "game install folder not found");
+        try
+        {
+            return (new Catalogue(new Archive(install)), null);
+        }
+        catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException
+                                      or IndexOutOfRangeException or ArgumentException)
+        {
+            return (null, e.Message);
+        }
     }
 
     static bool Changed(Snapshot a, Snapshot b) =>

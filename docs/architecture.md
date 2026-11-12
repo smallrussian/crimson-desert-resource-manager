@@ -45,12 +45,23 @@ state identifiers and a plain list of what could not be read; no user data.
 
 Sync client, web app, hosting, auth provider, and the typed API contract.
 
-## Not done in the reader
+## Game data in the reader (2026-11-12)
 
-- Static game tables (mission names, costs, rewards, comrade skills) are read only by `tools/re/paz.py`,
-  not by the C# reader, so those snapshot fields are null.
-- `workers.total` is null for the same reason (it needs character names).
-- No tests yet. AGENTS.md requires fixture-based tests; a hand-written save fixture has to be built first.
+`Archive` (GameData.cs) reads the install's data index and tables read-only; `Catalogue` parses mission,
+drop-set, item and character records (base and DLC copies, DLC wins). Nothing extracted is written to disk.
+Snapshots now carry, per running mission: internal name, category, role, region, members min/max, cost,
+base reward, and extra item rewards with their chance. `workers.total` uses the dispatchable-comrade rule
+(always excluding Marius). Loading the game data takes well under a second.
+
+Still null: mission duration (not located), display names (localisation not decoded), and bonus-included
+rewards (rules known, inputs only partly read).
+
+## Tests
+
+`reader/CampLedger.Reader.Tests` (xUnit). Hand-built byte fixtures for LZ4, the save body decoder, mission
+records and drop sets; no game files needed. Run: `dotnet test reader/CampLedger.Reader.Tests`.
+Dependencies added for tests only: xunit, xunit.runner.visualstudio, Microsoft.NET.Test.Sdk (the standard
+.NET test runner).
 
 ## Files placed in the game folder (launcher-only exception)
 
@@ -70,5 +81,6 @@ process, so the loader and launcher work. **But that reader wrote no snapshot.**
 the same build read the save fine, so the first read most likely failed while the game was still starting
 (for example the save file being open), and the reader then waited for a newer save instead of retrying.
 Fixed the same evening: a failed read is retried, and the reader now logs to
-`%LOCALAPPDATA%\CampLedgereader.log`. **The fix has not yet been through a real game launch.**
+`%LOCALAPPDATA%\CampLedger
+eader.log`. **The fix has not yet been through a real game launch.**
 Also still to confirm: the reader exits when the game closes when started by the launcher.

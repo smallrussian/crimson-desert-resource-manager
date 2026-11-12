@@ -8,10 +8,15 @@ Build (needs the .NET 8 SDK):
 
 Run (`reader/CampLedger.Reader/bin/Release/net8.0-windows/CampLedgerReader.exe`):
 
-    CampLedgerReader snapshot              one snapshot from the newest save, as JSON
+    CampLedgerReader snapshot              one snapshot from the newest save, as JSON (with mission details
+                                           from the game data when the install is found)
     CampLedgerReader snapshot <file>       same, from a given save file (a temp copy is read)
     CampLedgerReader watch                 wait for the game, record while it runs, exit when it closes
     CampLedgerReader watch --stay          same, but go back to waiting after the game closes
     (the launcher ASI in launcher/ starts "watch" when the game loads)
 
 Snapshots are appended to `%LOCALAPPDATA%\CampLedger\snapshots.jsonl`.
+
+Tests (no game needed):
+
+    dotnet test reader/CampLedger.Reader.Tests

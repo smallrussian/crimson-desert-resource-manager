@@ -46,8 +46,14 @@ public sealed class Mission
     public string? Region { get; set; }
     public bool Active { get; set; }
     public int? Workers { get; set; }
+    /// <summary>"Members Required" range from the game's mission data.</summary>
+    public int? WorkersMin { get; set; }
+    public int? WorkersMax { get; set; }
+    /// <summary>Which reserve the mission mainly produces (game's operation group).</summary>
+    public string? Role { get; set; }
     public double? DurationHours { get; set; }
     public Reserves? Cost { get; set; }
+    /// <summary>Base reward per cycle, before conversion, skill and comrade bonuses.</summary>
     public Reserves? Reward { get; set; }
     public string? PersonalStorageReward { get; set; }
 
