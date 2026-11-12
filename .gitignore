@@ -1,0 +1,11 @@
+bin/
+obj/
+.venv/
+*.save
+build/
+__pycache__/
+*.pyc
+*.dll
+*.asi
+*.pdb
+*.lib

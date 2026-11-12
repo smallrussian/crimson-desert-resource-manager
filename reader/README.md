@@ -1,0 +1,17 @@
+# Reader
+
+C# / .NET 8. Read-only toward the game. See `docs/architecture.md`.
+
+Build (needs the .NET 8 SDK):
+
+    dotnet build reader/CampLedger.Reader -c Release
+
+Run (`reader/CampLedger.Reader/bin/Release/net8.0-windows/CampLedgerReader.exe`):
+
+    CampLedgerReader snapshot              one snapshot from the newest save, as JSON
+    CampLedgerReader snapshot <file>       same, from a given save file (a temp copy is read)
+    CampLedgerReader watch                 wait for the game, record while it runs, exit when it closes
+    CampLedgerReader watch --stay          same, but go back to waiting after the game closes
+    (the launcher ASI in launcher/ starts "watch" when the game loads)
+
+Snapshots are appended to `%LOCALAPPDATA%\CampLedger\snapshots.jsonl`.

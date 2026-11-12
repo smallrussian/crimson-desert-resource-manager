@@ -1,0 +1,17 @@
+{
+  "gameVersion": "2.04.08",
+  "checked": "2026-11-11",
+  "evidence": "docs/re-notes/live-memory.md",
+  "status": "Found 5 of 5 reserves by value in sessions one and three (2026-11-11). A session-two miss is attributed to the research scanner skipping unreadable blocks.",
+  "reserveObject": {
+    "comment": "Heap object per camp reserve. Fields are relative to the vtable-like pointer that follows the item key.",
+    "pointerRva": "0x5AB9800",
+    "assumedImageBase": "0x140000000",
+    "keyOffset": -4,
+    "zeroOffset": -8,
+    "amountOffset": -16,
+    "headerOffset": -24,
+    "headerBytes": "0100000001000000",
+    "itemKeys": { "funds": 11, "food": 12, "timber": 13, "stone": 14, "armaments": 15 }
+  }
+}
