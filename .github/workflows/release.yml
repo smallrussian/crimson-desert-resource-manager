@@ -1,0 +1,76 @@
+# Builds the installer for a version tag and attaches it to a draft GitHub release.
+# Publishing the draft (by hand, after testing it) is what makes installed apps offer the update:
+# they only look at the latest published, non-prerelease release. See docs/release.md.
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-2022
+    env:
+      ASI_LOADER_URL: https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/v10.0.2/Ultimate-ASI-Loader-NoPDB_x64.zip
+      ASI_LOADER_ZIP_SHA256: fe964adf4de7f467ff39c440a4059de02e37d0574a62944eef2f55a35edafa2f
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version from tag
+        id: version
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}'
+          if ($tag -notmatch '^v(\d+\.\d+\.\d+)$') { throw "tag $tag is not vX.Y.Z" }
+          "version=$($Matches[1])" >> $env:GITHUB_OUTPUT
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Tests
+        shell: pwsh
+        run: |
+          dotnet test core/CampLedger.Core.Tests -c Release
+          if ($LASTEXITCODE -ne 0) { throw "core tests failed" }
+          dotnet test reader/CampLedger.Reader.Tests -c Release
+          if ($LASTEXITCODE -ne 0) { throw "reader tests failed" }
+
+      # build.ps1 compiles the launcher ASI with zig.
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.1
+
+      # The ASI loader is not in the repo (no binaries); fetch the pinned upstream release and check both hashes.
+      - name: Ultimate ASI Loader
+        shell: pwsh
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'asi-loader.zip'
+          Invoke-WebRequest $env:ASI_LOADER_URL -OutFile $zip
+          $got = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($got -ne $env:ASI_LOADER_ZIP_SHA256) { throw "loader zip SHA-256 is $got" }
+          $x = Join-Path $env:RUNNER_TEMP 'asi-loader'
+          Expand-Archive $zip -DestinationPath $x
+          New-Item -ItemType Directory -Force launcher/build/install | Out-Null
+          Copy-Item (Join-Path $x 'dinput8.dll') launcher/build/install/winmm.dll   # build.ps1 checks the DLL's hash too
+
+      - name: Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+
+      - name: Build installer
+        shell: pwsh
+        run: ./installer/build.ps1 -Version ${{ steps.version.outputs.version }}
+
+      - name: Draft release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $v = '${{ steps.version.outputs.version }}'
+          gh release create '${{ github.ref_name }}' "installer/out/CampLedgerSetup-$v.exe" `
+            --draft --verify-tag --generate-notes --title "Camp Ledger $v"

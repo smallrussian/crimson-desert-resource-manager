@@ -182,7 +182,8 @@ with the reader (`Watcher`) and `DashboardServer` running in the same process. I
 showing the existing HTML dashboard in a native window; the runtime ships with Windows 11).
 
 **Not chosen.** A WPF/XAML rewrite of the dashboard (all UI written twice), Electron or Tauri (second language,
-bigger download), Velopack (auto-update needs a hosted feed).
+bigger download), Velopack (would replace the Inno installer and its "start with the game" and uninstall steps;
+GitHub Releases now serves as the update feed instead, see below).
 
 **How it works.**
 - `CampLedger.exe` opens the window; `CampLedger.exe watch` (what the launcher ASI runs) starts in the tray.
@@ -216,3 +217,28 @@ instance; launcher-style `watch` start stays in the tray; closing exits when thi
 published app runs standalone. **Not yet checked:** the installer run end to end, the tray-on-close path while the
 app itself records, `CatchUpFromSave` against a real save, and the "start with the game" task on the real
 game folder.
+
+## In-app updates from GitHub Releases (decided 2026-11-13)
+
+**Decision.** The owner wants updates without reinstalling. The app checks this repository's latest published GitHub
+release. When it finds a newer one, it offers **Update and restart**: it downloads `CampLedgerSetup-X.Y.Z.exe`,
+checks its size and the SHA-256 GitHub reports for the asset, and runs the same Inno installer silently over the
+existing install. The installer waits for the old process to exit and relaunches the app, in the window or in the
+tray as it was. Releases are built by `.github/workflows/release.yml` on a `vX.Y.Z` tag, as drafts the owner
+publishes. Procedure and acceptance rules: [release.md](release.md).
+
+**Why.** No new dependency and no hosting. One installer serves both first installs and updates, so the "start with
+the game" task, the uninstall cleanup and the per-user folder all keep working. Game patches need new
+`offsets/<version>/` files, which ship inside the app, so updating has to be easy.
+
+**Network use.** This is the app's only outbound request: one unauthenticated GET to `api.github.com` 20 s after
+start and every 6 h, plus the download when the user clicks update. No user or game data is sent. It can be turned off
+from the tray menu (**Check for updates automatically**).
+
+**Checked 2026-11-13** (game closed): 0.1.0 installed by its installer into a scratch folder, pointed at a local
+test feed (`CAMPLEDGER_UPDATE_FEED`) serving a 0.1.1 release. It found the update 20 s after start and showed the
+banner. **Update and restart** downloaded and verified the installer and the app exited. The silent install
+succeeded and 0.1.1 reopened in the window, about 7 s after the click. Download folder cleaned on the new start.
+**Not yet checked:** an update from a real published GitHub release (none exists yet), the GitHub Actions workflow
+(first run happens on the first tag), relaunch into the tray (`/RELAUNCH=watch`), and an update over an install with
+"start with the game" ticked.

@@ -17,11 +17,22 @@ sealed class MainWindow : Form
     readonly Label _problemText = new() { Dock = DockStyle.Top, AutoSize = false, Height = 120, ForeColor = Color.FromArgb(0xec, 0xe2, 0xcf), Font = new Font("Segoe UI", 11f) };
     readonly FlowLayoutPanel _problemButtons = new() { Dock = DockStyle.Top, AutoSize = true };
 
+    // Update banner (above the dashboard) while a newer release is available.
+    static readonly Color BannerBack = Color.FromArgb(0x2a, 0x21, 0x14), BannerText = Color.FromArgb(0xe8, 0xc9, 0x7a);
+    readonly Updater _updater;
+    readonly Action _applyUpdate;
+    readonly Panel _banner = new() { Dock = DockStyle.Top, Height = 44, Visible = false, BackColor = BannerBack, Padding = new Padding(16, 0, 8, 0) };
+    readonly Label _bannerText = new() { Dock = DockStyle.Fill, AutoSize = false, TextAlign = ContentAlignment.MiddleLeft, ForeColor = BannerText, Font = new Font("Segoe UI", 10f) };
+    readonly FlowLayoutPanel _bannerButtons = new() { Dock = DockStyle.Right, AutoSize = true, WrapContents = false, Padding = new Padding(0, 8, 0, 0) };
+    readonly Button _updateNow, _whatsNew, _later;
+
     static string BoundsFile => Path.Combine(ReaderHost.DataDir(), "window.json");
 
-    public MainWindow(string url)
+    public MainWindow(string url, Updater updater, Action applyUpdate)
     {
         _url = url;
+        _updater = updater;
+        _applyUpdate = applyUpdate;
         Text = "Camp Ledger";
         Icon = Program.AppIcon;
         BackColor = Background;
@@ -32,8 +43,18 @@ sealed class MainWindow : Form
 
         _problem.Controls.Add(_problemButtons);
         _problem.Controls.Add(_problemText);
+        _updateNow = BannerButton("Update and restart", () => _applyUpdate());
+        _whatsNew = BannerButton("What's new", () => { if (_updater.Available is { } r) Open(r.Page.ToString()); });
+        _later = BannerButton("Later", () => { _updater.Dismissed = true; RefreshBanner(); });
+        _bannerButtons.Controls.AddRange([_updateNow, _whatsNew, _later]);
+        _banner.Controls.Add(_bannerText);
+        _banner.Controls.Add(_bannerButtons);
+
         Controls.Add(_web);
         Controls.Add(_problem);
+        Controls.Add(_banner);
+        _updater.Changed += RefreshBanner;
+        RefreshBanner();
 
         Load += async (_, _) => await InitWebView();
         FormClosing += (_, _) => SaveBounds();
@@ -85,6 +106,31 @@ sealed class MainWindow : Form
                         ("Open log folder", () => Open(ReaderHost.DataDir())));
         };
         core.Navigate(_url);
+    }
+
+    static Button BannerButton(string text, Action click)
+    {
+        var b = new Button { Text = text, AutoSize = true, Height = 28, Margin = new Padding(6, 0, 0, 0), FlatStyle = FlatStyle.Flat,
+                             ForeColor = BannerText, BackColor = BannerBack, Font = new Font("Segoe UI", 9.5f) };
+        b.FlatAppearance.BorderColor = Color.FromArgb(0x8a, 0x6d, 0x3b);
+        b.Click += (_, _) => click();
+        return b;
+    }
+
+    void RefreshBanner()
+    {
+        if (IsDisposed) return;
+        var r = _updater.Available;
+        _banner.Visible = r is not null && (!_updater.Dismissed || _updater.Busy);
+        if (r is null) return;
+        _bannerText.Text = _updater.Progress ?? $"Camp Ledger {r.Version} is available (you have {Updater.CurrentText}). Updating keeps your data and settings.";
+        _updateNow.Enabled = _later.Enabled = !_updater.Busy;
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) _updater.Changed -= RefreshBanner;
+        base.Dispose(disposing);
     }
 
     void ShowProblem(string text, params (string Label, Action Click)[] buttons)

@@ -30,6 +30,9 @@ WizardStyle=modern
 ; Ask to close a running Camp Ledger before replacing or removing its files.
 AppMutex=CampLedger.App
 CloseApplications=yes
+; In-app updates run this same installer silently over the existing install (see docs/release.md):
+;   /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /WAITPID=<app pid> /RELAUNCH=window|watch
+; The folder and the tasks chosen at first install are reused (Inno's defaults).
 
 [Tasks]
 Name: desktopicon; Description: "Create a &desktop shortcut"; Flags: unchecked
@@ -44,7 +47,9 @@ Name: "{autoprograms}\Camp Ledger"; Filename: "{app}\CampLedger.exe"
 Name: "{autodesktop}\Camp Ledger"; Filename: "{app}\CampLedger.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\CampLedger.exe"; Parameters: "--install-launcher --quiet"; Tasks: startwithgame; StatusMsg: "Setting Camp Ledger to start with the game..."; Flags: waituntilterminated
+Filename: "{app}\CampLedger.exe"; Parameters: "--install-launcher --quiet"; Tasks: startwithgame; Check: not IsUpdate; StatusMsg: "Setting Camp Ledger to start with the game..."; Flags: waituntilterminated
+; After an in-app update: start the new version the way the old one was running.
+Filename: "{app}\CampLedger.exe"; Parameters: "{code:RelaunchArgs}"; Check: IsUpdate; Flags: nowait
 Filename: "{app}\CampLedger.exe"; Description: "Open Camp Ledger"; Flags: postinstall nowait skipifsilent
 
 [UninstallRun]
@@ -64,6 +69,43 @@ begin
     (RegQueryStringValue(HKLM, 'SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'pv', V) and (V <> '') and (V <> '0.0.0.0')) or
     (RegQueryStringValue(HKLM, WebView2Key, 'pv', V) and (V <> '') and (V <> '0.0.0.0')) or
     (RegQueryStringValue(HKCU, WebView2Key, 'pv', V) and (V <> '') and (V <> '0.0.0.0'));
+end;
+
+function OpenProcess(Access: Cardinal; Inherit: Integer; Pid: Cardinal): THandle; external 'OpenProcess@kernel32.dll stdcall';
+function WaitForSingleObject(Handle: THandle; Ms: Cardinal): Cardinal; external 'WaitForSingleObject@kernel32.dll stdcall';
+function CloseHandle(Handle: THandle): Integer; external 'CloseHandle@kernel32.dll stdcall';
+
+const
+  SYNCHRONIZE = $00100000;
+
+{ Started by the app's updater: /WAITPID is the app's process id. }
+function IsUpdate: Boolean;
+begin
+  Result := ExpandConstant('{param:WAITPID|}') <> '';
+end;
+
+function RelaunchArgs(Param: String): String;
+begin
+  if ExpandConstant('{param:RELAUNCH|window}') = 'watch' then Result := 'watch' else Result := '';
+end;
+
+{ Let the old app finish exiting (it starts this installer and then quits) before any file is replaced. }
+function InitializeSetup: Boolean;
+var
+  Pid: Integer;
+  H: THandle;
+begin
+  Result := True;
+  Pid := StrToIntDef(ExpandConstant('{param:WAITPID|0}'), 0);
+  if Pid > 0 then
+  begin
+    H := OpenProcess(SYNCHRONIZE, 0, Pid);
+    if H <> 0 then
+    begin
+      WaitForSingleObject(H, 60000);
+      CloseHandle(H);
+    end;
+  end;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);

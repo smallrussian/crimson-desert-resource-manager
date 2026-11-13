@@ -15,3 +15,6 @@ Command line:
     CampLedger.exe --remove-launcher                 undo that
 
 Installer: `powershell -ExecutionPolicy Bypass -File installer\build.ps1`.
+
+Updates: the app updates itself from GitHub Releases (window banner or tray menu). To publish a version, see
+`docs/release.md`.
