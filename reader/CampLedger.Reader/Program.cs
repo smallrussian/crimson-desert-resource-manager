@@ -115,16 +115,32 @@ public static class Program
 /// <summary>Reads the game's version stamp (meta/0.paver) next to the running executable. Read-only.</summary>
 public static class GameVersion
 {
-    /// <summary>Versions whose save fields were checked by hand. See docs/re-notes/.</summary>
-    public static readonly HashSet<string> Supported = new() { "2.04.08" };
+    /// <summary>
+    /// Versions checked by hand: those with an offsets/&lt;version&gt;/gamedata.json. Adding a version is a data change
+    /// plus a re-note, never a code edit here; see docs/patch-update.md.
+    /// </summary>
+    public static IReadOnlyCollection<string> Supported => Offsets.Versions();
 
     public static string? Detect(Process? game)
     {
         try
         {
             string? exe = game?.MainModule?.FileName;
-            if (exe is null) return null;
-            string paver = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(exe)!)!, "meta", "0.paver");
+            return exe is null ? null : FromInstall(Path.GetDirectoryName(Path.GetDirectoryName(exe)!)!);
+        }
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Version from an install folder (the one holding meta/ and bin64/), or null.</summary>
+    public static string? FromInstall(string? install)
+    {
+        if (install is null) return null;
+        try
+        {
+            string paver = Path.Combine(install, "meta", "0.paver");
             using var fs = new FileStream(paver, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             var b = new byte[6];
             fs.ReadExactly(b);

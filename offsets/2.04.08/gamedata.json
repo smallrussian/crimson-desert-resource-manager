@@ -1,0 +1,24 @@
+{
+  "gameVersion": "2.04.08",
+  "checked": "2026-11-12",
+  "evidence": "docs/re-notes/mission-static-data.md (drop sets), docs/re-notes/comrade-bonuses.md (skill slots)",
+  "comment": "Game-data record layouts the reader needs that have moved between patches. Hex strings are byte offsets. Values here were hard-coded in Catalogue.cs before 2026-11-13 and are unchanged.",
+  "dropSet": {
+    "comment": "dropsetinfo record, offsets from the record key (after the length-prefixed comment). Entry offsets are from the entry start.",
+    "countOffset": "0x11",
+    "entriesOffset": "0x15",
+    "entrySize": "0x40",
+    "itemOffset": "0x1",
+    "rateOffset": "0x1A",
+    "minOffset": "0x2A",
+    "maxOffset": "0x32",
+    "markOffset": "0x3A",
+    "trailerItemOffset": "0x3C"
+  },
+  "skillSlots": {
+    "comment": "characterinfo: skill key is keyBeforeMarker bytes before the first FF FF FF FF 00x8 A0 86 01 00 marker of each slot run; runs are minGap..maxGap bytes apart.",
+    "keyBeforeMarker": 696,
+    "minGap": 1400,
+    "maxGap": 1600
+  }
+}

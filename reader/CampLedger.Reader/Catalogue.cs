@@ -42,10 +42,11 @@ public sealed class Catalogue
     readonly Dictionary<uint, string> _sublevelNames = new();
     readonly HashSet<uint> _dropKeys;
     readonly DisplayNames? _names;
+    readonly GameDataLayout _layout;
 
-    public Catalogue(Archive archive)
+    public Catalogue(Archive archive, GameDataLayout layout)
         : this(archive.Tables("factionnode"), archive.Tables("dropsetinfo"), archive.Tables("iteminfo"),
-               archive.Tables("characterinfo"), DisplayNames.TryLoad(archive, out string? problem),
+               archive.Tables("characterinfo"), layout, DisplayNames.TryLoad(archive, out string? problem),
                archive.Tables("skill"), archive.Tables("sublevelinfo"))
     {
         NamesProblem = problem;
@@ -62,8 +63,9 @@ public sealed class Catalogue
 
     /// <summary>From tables already in memory (base first, DLC after). Used by tests with hand-built tables.</summary>
     public Catalogue(List<Table> factionNode, List<Table> drops, List<Table> items, List<Table> characters,
-                     DisplayNames? names = null, List<Table>? skills = null, List<Table>? sublevels = null)
+                     GameDataLayout layout, DisplayNames? names = null, List<Table>? skills = null, List<Table>? sublevels = null)
     {
+        _layout = layout;
         foreach (var t in skills ?? new())
             foreach (var key in t.Records.Keys)
                 if (ParseCampSkill(t, key) is CampSkill cs) _campSkills[key] = cs;
@@ -191,7 +193,7 @@ public sealed class Catalogue
         for (int t = _characters.Count - 1; t >= 0; t--)
         {
             if (!_characters[t].Records.TryGetValue(characterKey, out var r)) continue;
-            return ParseSkillSlots(_characters[t].Body.AsSpan(r.Start, r.End - r.Start), k => _campSkills.ContainsKey(k));
+            return ParseSkillSlots(_characters[t].Body.AsSpan(r.Start, r.End - r.Start), k => _campSkills.ContainsKey(k), _layout.SkillSlots);
         }
         return null;
     }
@@ -199,11 +201,12 @@ public sealed class Catalogue
     static readonly byte[] SlotMarker = { 0xFF, 0xFF, 0xFF, 0xFF, 0, 0, 0, 0, 0, 0, 0, 0, 0xA0, 0x86, 0x01, 0x00 };
 
     /// <summary>
-    /// Slot layout in characterinfo (2.04.08, docs/re-notes/comrade-bonuses.md): each slot block contains a run of
-    /// entries starting with FF FF FF FF, 8 zero bytes, u32 100000. The slot's skill key is 696 bytes before the
-    /// first such entry of the run. Runs are about 1,504 bytes apart.
+    /// Slot layout in characterinfo (docs/re-notes/comrade-bonuses.md): each slot block contains a run of
+    /// entries starting with FF FF FF FF, 8 zero bytes, u32 100000. The slot's skill key is a fixed distance before the
+    /// first such entry of the run, and runs are a roughly fixed distance apart. Both distances are per version
+    /// (offsets/&lt;version&gt;/gamedata.json): 696 and ~1,504 on 2.04.08, 768 and ~1,581 on 2.05.00.
     /// </summary>
-    public static IReadOnlyList<uint>? ParseSkillSlots(ReadOnlySpan<byte> rec, Func<uint, bool> isCampSkill)
+    public static IReadOnlyList<uint>? ParseSkillSlots(ReadOnlySpan<byte> rec, Func<uint, bool> isCampSkill, SkillSlotLayout layout)
     {
         var firsts = new List<int>();
         int last = int.MinValue / 2;
@@ -218,14 +221,17 @@ public sealed class Catalogue
         var slots = new List<uint>();
         for (int s = 0; s < firsts.Count; s++)
         {
-            if (s > 0 && firsts[s] - firsts[s - 1] is < 1400 or > 1600) return null;
-            int at = firsts[s] - 696;
+            int gap = s > 0 ? firsts[s] - firsts[s - 1] : 0;
+            if (s > 0 && (gap < layout.MinGap || gap > layout.MaxGap)) return null;
+            int at = firsts[s] - layout.KeyBeforeMarker;
             if (at < 0) return null;
             uint key = U32(rec, at);
             if (key != 0 && !isCampSkill(key)) return null;
             slots.Add(key);
         }
-        return slots;
+        // Every comrade checked on 2.04.08 and 2.05.00 has at least one camp skill. All zeros is what a shifted layout
+        // reads (seen on 2.05.00 with the 2.04.08 offsets), so treat it as unknown rather than "no skills".
+        return slots.All(k => k == 0) ? null : slots;
     }
 
     /// <summary>
@@ -260,27 +266,32 @@ public sealed class Catalogue
     public string? ItemName(uint key) => Last(_items, key, (t, k) => t.Name(k));
     public string? CharacterName(uint key) => Last(_characters, key, (t, k) => t.Name(k));
 
-    /// <summary>Drop-set entries, or null if the record is missing or fails its self-checks.</summary>
+    /// <summary>
+    /// Drop-set entries, or null if the record is missing or fails its self-checks. Offsets are per version
+    /// (offsets/&lt;version&gt;/gamedata.json): 2.05.00 added one byte before the count and one before each entry's trailer.
+    /// </summary>
     public IReadOnlyList<DropItem>? DropSet(uint key)
     {
+        var L = _layout.DropSet;
         for (int t = _drops.Count - 1; t >= 0; t--)
         {
             if (!_drops[t].Records.TryGetValue(key, out var r)) continue;
             var b = _drops[t].Body.AsSpan(r.Start, r.End - r.Start);
+            if (b.Length < 4) return null;
             int skip = 4 + (int)U32(b, 0);                      // length-prefixed comment, e.g. Item(Money_Camp_Money,1900)
-            if (skip + 0x15 > b.Length || U32(b, skip) != key) return null;
+            if (skip < 4 || skip + L.EntriesOffset > b.Length || U32(b, skip) != key) return null;
             b = b.Slice(skip);
-            int n = (int)U32(b, 0x11);
-            if (n is < 0 or > 32 || 0x15 + n * 0x40 > b.Length) return null;
+            int n = (int)U32(b, L.CountOffset);
+            if (n is < 0 or > 32 || L.EntriesOffset + n * L.EntrySize > b.Length) return null;
             var items = new List<DropItem>(n);
             for (int i = 0; i < n; i++)
             {
-                var e = b.Slice(0x15 + i * 0x40, 0x40);
-                uint item = U32(e, 1);
-                if (e[0x3A] != 0xFF || e[0x3B] != 0xFF || U32(e, 0x3C) != item) return null;
-                long min = (long)BinaryPrimitives.ReadUInt64LittleEndian(e.Slice(0x2A));
-                long max = (long)BinaryPrimitives.ReadUInt64LittleEndian(e.Slice(0x32));
-                items.Add(new DropItem(item, min, max, U32(e, 0x1A) / 1_000_000.0));
+                var e = b.Slice(L.EntriesOffset + i * L.EntrySize, L.EntrySize);
+                uint item = U32(e, L.ItemOffset);
+                if (e[L.MarkOffset] != 0xFF || e[L.MarkOffset + 1] != 0xFF || U32(e, L.TrailerItemOffset) != item) return null;
+                long min = (long)BinaryPrimitives.ReadUInt64LittleEndian(e.Slice(L.MinOffset));
+                long max = (long)BinaryPrimitives.ReadUInt64LittleEndian(e.Slice(L.MaxOffset));
+                items.Add(new DropItem(item, min, max, U32(e, L.RateOffset) / 1_000_000.0));
             }
             return items;
         }

@@ -11,6 +11,13 @@ using System.Runtime.InteropServices;
 //   cdprobe ptr <maxoff> <addr>...        8-aligned qwords v with addr-maxoff <= v <= addr, anywhere readable
 //   cdprobe chain <rva> <off>...          follow exe+rva, then [p+off]..., print each step
 //   cdprobe regions                       summary of scanned memory
+//   cdprobe relocate <memory.json> [funds=N ...]  after a patch: find reserve objects by shape, print new class RVAs
+//   cdprobe verify <memory.json>          locate and read reserves with the reader's own code and this layout file
+//   cdprobe multidrop [n]                 camp drop sets with 2+ items (for re-deriving the dropsetinfo layout)
+//   cdprobe recbin <table> <key> <out>    raw game-data record bytes to a file (kept outside the repo)
+//   cdprobe campskills                    camp skill keys, types and percents the catalogue recognises
+// Per-patch procedure: docs/patch-update.md. Game-data commands use offsets/<installed version>/gamedata.json,
+// or the file in CAMPLEDGER_GAMEDATA.
 
 static class P
 {
@@ -34,7 +41,7 @@ static class P
         if (a[0] == "names") return Names(a.Skip(1).Select(uint.Parse).ToArray());
         if (a[0] == "durations")
         {
-            var cat = new CampLedger.Reader.Catalogue(new CampLedger.Reader.Archive(CampLedger.Reader.GameInstall.Find(null)!));
+            var cat = Cat(new CampLedger.Reader.Archive(CampLedger.Reader.GameInstall.Find(null)!));
             var ops = Enumerable.Range(0, 1).SelectMany(_ => typeof(CampLedger.Reader.Catalogue)
                 .GetField("_operations", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
                 .GetValue(cat) is Dictionary<uint, CampLedger.Reader.OperationInfo> d ? d.Values : Enumerable.Empty<CampLedger.Reader.OperationInfo>())
@@ -124,7 +131,7 @@ static class P
             }
             if (a.Length > 1 && a[1] == "camp")
             {
-                var cat = new CampLedger.Reader.Catalogue(new CampLedger.Reader.Archive(CampLedger.Reader.GameInstall.Find(null)!));
+                var cat = Cat(new CampLedger.Reader.Archive(CampLedger.Reader.GameInstall.Find(null)!));
                 var ops = ((Dictionary<uint, CampLedger.Reader.OperationInfo>)typeof(CampLedger.Reader.Catalogue)
                     .GetField("_operations", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
                     .GetValue(cat)!).Values.Where(o => o.Category is not null).ToList();
@@ -245,7 +252,7 @@ static class P
                 }
             var byName = cond.Values.GroupBy(c => c.Name).ToDictionary(g => g.Key, g => g.Last().Expr);
             Console.WriteLine($"{cond.Count} conditions");
-            var cat = new CampLedger.Reader.Catalogue(ar);
+            var cat = Cat(ar);
             var ops = ((Dictionary<uint, CampLedger.Reader.OperationInfo>)typeof(CampLedger.Reader.Catalogue)
                 .GetField("_operations", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
                 .GetValue(cat)!).Values.Where(o => o.Category is not null).ToList();
@@ -297,6 +304,44 @@ static class P
                     Console.WriteLine($"{key} {name}: {first} ({en - s} bytes)");
                 }
             }
+            return 0;
+        }
+        if (a[0] == "multidrop")
+        {
+            // multidrop [count] : drop-set records whose comment names two or more items, for checking the entry layout.
+            var ts = new CampLedger.Reader.Archive(CampLedger.Reader.GameInstall.Find(null)!).Tables("dropsetinfo");
+            int want = a.Length > 1 ? int.Parse(a[1]) : 5, shown = 0;
+            foreach (var t in ts)
+                foreach (var (key, (s, en)) in t.Records)
+                {
+                    int L = (int)BitConverter.ToUInt32(t.Body, s);
+                    if (L is < 1 or > 400) continue;
+                    string c = System.Text.Encoding.ASCII.GetString(t.Body, s + 4, L);
+                    if (c.Split("Item(").Length < 3 || !c.Contains("Money_Camp")) continue;
+                    Console.WriteLine($"{key} {c} ({en - s} bytes, comment {L})");
+                    if (++shown >= want) return 0;
+                }
+            return 0;
+        }
+        if (a[0] == "campskills")
+        {
+            // campskills : key, type, tier, percent of every camp skill the catalogue recognises.
+            var cat = Cat(new CampLedger.Reader.Archive(CampLedger.Reader.GameInstall.Find(null)!));
+            var d = (System.Collections.IDictionary)typeof(CampLedger.Reader.Catalogue)
+                .GetField("_campSkills", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(cat)!;
+            foreach (System.Collections.DictionaryEntry e in d) Console.WriteLine($"{e.Key} {e.Value}");
+            return 0;
+        }
+        if (a[0] == "recbin")
+        {
+            // recbin <table> <key> <outFile> : raw record bytes (the copy DLC wins), for offline layout comparison.
+            var ts = new CampLedger.Reader.Archive(CampLedger.Reader.GameInstall.Find(null)!).Tables(a[1]);
+            uint key = uint.Parse(a[2]);
+            var t = ts.LastOrDefault(t => t.Records.ContainsKey(key));
+            if (t is null) { Console.WriteLine("not found"); return 1; }
+            var (s, en) = t.Records[key];
+            File.WriteAllBytes(a[3], t.Body.AsSpan(s, en - s).ToArray());
+            Console.WriteLine($"{en - s} bytes from table {ts.IndexOf(t)} of {ts.Count}");
             return 0;
         }
         if (a[0] == "rec")
@@ -353,9 +398,21 @@ static class P
             case "items": Items(Hex(a[1])); break;
             case "pair": Pair(uint.Parse(a[1]), uint.Parse(a[2]), int.Parse(a[3])); break;
             case "track": Track(int.Parse(a[1])); break;
+            case "relocate": Relocate(a[1], a.Skip(2).ToArray()); break;
+            case "verify": Verify(a[1]); break;
         }
         Console.WriteLine($"({sw.Elapsed.TotalSeconds:F1} s)");
         return 0;
+    }
+
+    /// <summary>Catalogue with the layout for the installed game version, or the file in CAMPLEDGER_GAMEDATA if set.</summary>
+    static CampLedger.Reader.Catalogue Cat(CampLedger.Reader.Archive archive)
+    {
+        string? file = Environment.GetEnvironmentVariable("CAMPLEDGER_GAMEDATA");
+        if (file is not null) return new(archive, CampLedger.Reader.GameDataLayout.Load(file));
+        string? v = CampLedger.Reader.GameVersion.FromInstall(CampLedger.Reader.GameInstall.Find(null));
+        return new(archive, CampLedger.Reader.GameDataLayout.TryLoad(v, out string? problem)
+                            ?? throw new InvalidOperationException(problem + "; set CAMPLEDGER_GAMEDATA to a gamedata.json to try one"));
     }
 
     static long Hex(string s) => Convert.ToInt64(s.StartsWith("-") ? "-" + s[1..].Replace("0x", "") : s.Replace("0x", ""), 16);
@@ -422,6 +479,95 @@ static class P
         });
         foreach (var (addr, amount, key) in hits.OrderBy(h => h.Item3).ThenBy(h => h.Item1))
             Console.WriteLine($"key {key}  amount {amount,10}  at 0x{addr:X}");
+    }
+
+    /// <summary>
+    /// After a patch: finds reserve item objects by their shape alone (header, amount, zero, key 11-15 at the
+    /// offsets in an older memory.json), ignoring that file's RVAs. For every hit it follows the owner route
+    /// (object +parentOffset -> owner, owner +parentOffset -> root) and groups hits by the three class pointers.
+    /// The group that covers all five keys with an owner and root in the exe gives the new RVAs.
+    /// Optional "funds=50456" style arguments mark hits whose amount equals a known value (e.g. from the save).
+    /// docs/patch-update.md describes how to use the result.
+    /// </summary>
+    static void Relocate(string layoutFile, string[] expected)
+    {
+        using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(layoutFile));
+        var o = doc.RootElement.GetProperty("reserveObject");
+        int Off(string n) => (int)Hex(o.GetProperty(n).GetString()!);
+        int parentOff = Off("parentOffset"), headerOff = Off("headerOffset"), amountOff = Off("amountOffset"),
+            keyOff = Off("keyOffset"), listOff = Off("balanceListOffset");
+        long header = BinaryPrimitives.ReadInt64LittleEndian(Convert.FromHexString(o.GetProperty("headerBytes").GetString()!));
+        var names = o.GetProperty("itemKeys").EnumerateObject().ToDictionary(p => (uint)p.Value.GetInt32(), p => p.Name);
+        var want = expected.Select(e => e.Split('=')).ToDictionary(p => p[0], p => long.Parse(p[1]));
+        int zeroOff = amountOff + 8;
+        if (zeroOff + 4 != keyOff) Console.WriteLine("note: key is not right after amount+zero in this layout; checking key separately");
+
+        var hits = new ConcurrentBag<long>();   // object starts
+        Scan((buf, len, at) =>
+        {
+            var s = buf.AsSpan(0, len);
+            for (int i = 0; i + (keyOff - headerOff) + 4 <= len; i += 8)
+            {
+                if (BinaryPrimitives.ReadInt64LittleEndian(s.Slice(i)) != header) continue;
+                if (BinaryPrimitives.ReadUInt32LittleEndian(s.Slice(i + zeroOff - headerOff)) != 0) continue;
+                uint key = BinaryPrimitives.ReadUInt32LittleEndian(s.Slice(i + keyOff - headerOff));
+                if (names.ContainsKey(key)) hits.Add(at + i - headerOff);
+            }
+        });
+        Console.WriteLine($"{hits.Count} objects with the reserve shape");
+
+        var groups = new Dictionary<(long, long, long), List<(long Obj, uint Key, long Amount, bool Balance)>>();
+        var b = new byte[8];
+        foreach (long obj in hits)
+        {
+            long cls = Q(obj), parent = Q(obj + parentOff);
+            long pcls = parent == 0 ? 0 : Q(parent), root = parent == 0 ? 0 : Q(parent + parentOff), rcls = root == 0 ? 0 : Q(root);
+            uint key = Read(obj + keyOff, b, 4) ? BinaryPrimitives.ReadUInt32LittleEndian(b) : 0;
+            long amount = Q(obj + amountOff);
+            bool balance = Q(obj + listOff) != 0 && Q(obj + listOff + 8) != 0;
+            var g = (cls, pcls, rcls);
+            if (!groups.TryGetValue(g, out var list)) groups[g] = list = new();
+            list.Add((obj, key, amount, balance));
+        }
+        bool InExe(long v) => v >= ModBase && v < ModEnd;
+        foreach (var ((cls, pcls, rcls), list) in groups.OrderByDescending(g => g.Value.Select(x => x.Key).Distinct().Count()).ThenByDescending(g => g.Value.Count).Take(12))
+        {
+            bool route = InExe(cls) && InExe(pcls) && InExe(rcls);
+            Console.WriteLine($"\nclass {Where(cls)}  owner {(pcls == 0 ? "-" : Where(pcls))}  root {(rcls == 0 ? "-" : Where(rcls))}  " +
+                              $"{list.Count} objects, keys {string.Join(",", list.Select(x => x.Key).Distinct().OrderBy(k => k))}{(route ? "  <- full route" : "")}");
+            foreach (var x in list.OrderBy(x => x.Key).ThenByDescending(x => x.Balance).Take(20))
+            {
+                string name = names[x.Key];
+                string mark = want.TryGetValue(name, out long w) ? (w == x.Amount ? "  = expected" : $"  (expected {w})") : "";
+                Console.WriteLine($"  {name,-10} {x.Amount,10}  {(x.Balance ? "balance" : "pending/placeholder")}  0x{x.Obj:X}{mark}");
+            }
+        }
+        var best = groups.Where(g => InExe(g.Key.Item1) && InExe(g.Key.Item2) && InExe(g.Key.Item3))
+                         .Where(g => g.Value.Where(x => x.Balance).Select(x => x.Key).Distinct().Count() == names.Count).ToList();
+        Console.WriteLine();
+        if (best.Count == 1)
+        {
+            var (c, p, r) = best[0].Key;
+            Console.WriteLine($"candidate: classRva 0x{c - ModBase:X}  ownerClassRva 0x{p - ModBase:X}  rootClassRva 0x{r - ModBase:X}");
+            Console.WriteLine("Copy these into offsets/<new version>/memory.json, then run: cdprobe verify offsets/<new version>/memory.json");
+        }
+        else Console.WriteLine($"no unique candidate ({best.Count} groups cover all five reserves with a balance object). " +
+                               "If none: the object layout changed; find a reserve by value (cdprobe val <amount>) and re-derive the offsets.");
+    }
+
+    /// <summary>
+    /// Checks a memory.json against the running game exactly as the reader does (same code path:
+    /// CampLedger.Reader.MemorySource), and prints each reserve. Pass the file you want to test.
+    /// </summary>
+    static void Verify(string layoutFile)
+    {
+        var game = Process.GetProcessesByName("CrimsonDesert").First();
+        using var m = CampLedger.Reader.MemorySource.FromFile(game, layoutFile);
+        if (m.Problem is not null) { Console.WriteLine("unavailable: " + m.Problem); return; }
+        int n = m.Locate();
+        Console.WriteLine($"located {n} of 5");
+        var r = m.ReadReserves();
+        Console.WriteLine(r is null ? "reserves: unknown" : $"funds {r.Funds}  food {r.Food}  timber {r.Timber}  stone {r.Stone}  armaments {r.Armaments}");
     }
 
     /// <summary>Every 4-aligned u64 equal to n, with the qword before and the two after.</summary>
@@ -540,7 +686,7 @@ static class P
         string install = CampLedger.Reader.GameInstall.Find(null) ?? throw new InvalidOperationException("no install");
         var archive = new CampLedger.Reader.Archive(install);
         var tables = archive.Tables("factionnode");
-        var cat = new CampLedger.Reader.Catalogue(archive);
+        var cat = Cat(archive);
         foreach (var spec in specs)
         {
             var (text, hours) = (spec.Split('=')[0], double.Parse(spec.Split('=')[1]));

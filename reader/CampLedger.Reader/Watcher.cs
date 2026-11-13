@@ -47,9 +47,11 @@ public static class ReaderHost
     {
         string? install = GameInstall.Find(game);
         if (install is null) return (null, "game install folder not found");
+        var layout = GameDataLayout.TryLoad(GameVersion.Detect(game), out string? layoutProblem);
+        if (layout is null) return (null, layoutProblem);
         try
         {
-            return (new Catalogue(new Archive(install)), null);
+            return (new Catalogue(new Archive(install), layout), null);
         }
         catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException
                                       or IndexOutOfRangeException or ArgumentException)
