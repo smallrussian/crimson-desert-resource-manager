@@ -46,7 +46,7 @@ public sealed class Catalogue
 
     public Catalogue(Archive archive, GameDataLayout layout)
         : this(archive.Tables("factionnode"), archive.Tables("dropsetinfo"), archive.Tables("iteminfo"),
-               archive.Tables("characterinfo"), layout, DisplayNames.TryLoad(archive, out string? problem),
+               archive.Tables("characterinfo"), layout, DisplayNames.TryLoad(archive, out string? problem, layout.RegionParentAfterName),
                archive.Tables("skill"), archive.Tables("sublevelinfo"))
     {
         NamesProblem = problem;
@@ -157,6 +157,23 @@ public sealed class Catalogue
         return null;
     }
 
+    /// <summary>The game's territories (regioninfo) and the region names the reader uses for them.</summary>
+    static readonly Dictionary<string, string> Territories = new()
+    {
+        ["Region_Hernandian_Territory"] = "Hernand", ["Region_Demenissian_Territory"] = "Demeniss",
+        ["Region_Delesyian_Territory"] = "Delesyia", ["Region_Pailunese_Territory"] = "Pailune",
+        ["Region_Tashkalpan_Territory"] = "Crimson Desert",
+    };
+
+    /// <summary>
+    /// Region of a mission node from the game's region hierarchy (e.g. Calphade nodes are in Hernandian territory).
+    /// Null when the hierarchy is not available for this version or does not cover the node.
+    /// </summary>
+    public string? NodeRegion(uint nodeKey) =>
+        _names is not null && Last(_nodes, nodeKey, (t, k) => t.Name(k)) is string node
+        && _names.Territory(node) is string territory ? Territories.GetValueOrDefault(territory) : null;
+
+    /// <summary>Fallback: region from the node's internal-name prefix (Her_, Dem_, Kwe_, ...).</summary>
     public static string? RegionOf(string? internalName)
     {
         if (internalName is null || !internalName.StartsWith("Node_")) return null;

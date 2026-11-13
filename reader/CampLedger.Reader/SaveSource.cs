@@ -178,7 +178,7 @@ public sealed class SaveSource : ISource
         m.Name = m.Location ?? m.Type ?? m.InternalName;
         if (_catalogue.HasDisplayNames && m.Type is null) unknowns.Add($"{m.InternalName}: English mission name not found");
         m.Role = op.Role;
-        m.Region = Catalogue.RegionOf(op.InternalName);
+        m.Region = _catalogue.NodeRegion(op.NodeKey) ?? Catalogue.RegionOf(op.InternalName);
         m.WorkersMin = op.MembersMin;
         m.WorkersMax = op.MembersMax;
         m.DurationHours = op.DurationHours;
@@ -373,6 +373,12 @@ public sealed class SaveSource : ISource
         ["Hernand"] = "Religion_Hernand", ["Demeniss"] = "Religion_Demenissian", ["Delesyia"] = "Religion_Delesyian",
     };
 
+    /// <summary>
+    /// Regions with no church sub-level in the game data, checked in game to give +0% conversion
+    /// (Pailune: Beighen "Advanced Logging" shows +0%, owner 2026-11-13). Crimson Desert is not checked: unknown.
+    /// </summary>
+    static readonly HashSet<string> NoChurch = new() { "Pailune" };
+
     MissionBonus? BonusOf(Mission m, List<long?> mercs, Dictionary<long, long> characterOf,
                           Dictionary<string, long>? sublevels, List<string> unknowns)
     {
@@ -385,6 +391,8 @@ public sealed class SaveSource : ISource
         // No save entry for a region's church means level 0 (Burnhand, Demeniss: none in the save, game shows +0%).
         if (m.Region is string region && Religion.TryGetValue(region, out var sub) && sublevels is not null)
             bonus.ConversionPercent = (int)(2 * sublevels.GetValueOrDefault(sub));
+        else if (m.Region is string r && NoChurch.Contains(r))
+            bonus.ConversionPercent = 0;
         else unknowns.Add($"{m.Name}: conversion bonus unknown (no church level for region {m.Region ?? "unknown"})");
 
         var comrades = new List<AssignedComrade>();

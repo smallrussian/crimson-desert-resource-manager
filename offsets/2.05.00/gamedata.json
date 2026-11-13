@@ -15,6 +15,10 @@
     "markOffset": "0x3A",
     "trailerItemOffset": "0x3D"
   },
+  "regionInfo": {
+    "comment": "Each regioninfo record (u32 name length + name, ...) holds its parent region's u16 key this many bytes after the name. Chains end at Region_<People>_Territory, e.g. Region_Node_Cal_CalphadeLoggingCamp -> Region_Calphade -> Region_Hernandian_Territory. Checked on 10 nodes in Hernand, Calphade, Demeniss and Pailune; see docs/re-notes/mission-regions.md.",
+    "parentAfterName": 13
+  },
   "skillSlots": {
     "comment": "Slot runs now 1,581-1,585 bytes apart (were ~1,504) and the skill key sits 768 bytes before the marker (was 696). Brant, Matilda and Luke decode to the same slots as on 2.04.08.",
     "keyBeforeMarker": 768,

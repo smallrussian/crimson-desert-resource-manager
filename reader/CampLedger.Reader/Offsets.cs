@@ -31,7 +31,10 @@ public sealed record SkillSlotLayout(int KeyBeforeMarker, int MinGap, int MaxGap
 /// Game-data record layouts that moved between patches, loaded from offsets/&lt;version&gt;/gamedata.json.
 /// Everything else in <see cref="Catalogue"/> has held across 2.04.08 and 2.05.00 (see docs/re-notes/patch-2.05.00.md).
 /// </summary>
-public sealed record GameDataLayout(string GameVersion, DropSetLayout DropSet, SkillSlotLayout SkillSlots)
+/// <param name="RegionParentAfterName">Where a regioninfo record keeps its parent region key, counted from the end of
+/// its name; null when not checked for this version (the reader then falls back to the node-name prefix).</param>
+public sealed record GameDataLayout(string GameVersion, DropSetLayout DropSet, SkillSlotLayout SkillSlots,
+                                    int? RegionParentAfterName = null)
 {
     public static GameDataLayout Load(string file)
     {
@@ -46,7 +49,8 @@ public sealed record GameDataLayout(string GameVersion, DropSetLayout DropSet, S
             new DropSetLayout(H(d, "countOffset"), H(d, "entriesOffset"), H(d, "entrySize"), H(d, "itemOffset"),
                               H(d, "rateOffset"), H(d, "minOffset"), H(d, "maxOffset"), H(d, "markOffset"),
                               H(d, "trailerItemOffset")),
-            new SkillSlotLayout(I(k, "keyBeforeMarker"), I(k, "minGap"), I(k, "maxGap")));
+            new SkillSlotLayout(I(k, "keyBeforeMarker"), I(k, "minGap"), I(k, "maxGap")),
+            root.TryGetProperty("regionInfo", out var r) ? I(r, "parentAfterName") : null);
     }
 
     /// <summary>The layout for a game version, or null with a reason (unknown version: fail closed).</summary>

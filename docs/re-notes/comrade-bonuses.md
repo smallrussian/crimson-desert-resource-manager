@@ -19,8 +19,8 @@ seen divides exactly).
 
 | Input | Source | Notes |
 |---|---|---|
-| Church level | Save `SubLevelSaveData._list[]` (`_key`, `_level`), names from `sublevelinfo` | `Religion_Hernand` (1000), `Religion_Demenissian` (1001), `Religion_Delesyian` (1002). No save entry = level 0 (Burnhand, Demeniss: +0% in game). Regions without a church sub-level (Pailune, Crimson Desert, Calphade-prefixed nodes): conversion unknown |
-| Mission's region | Node internal-name prefix (`Her`, `Dem`, `Del`, …) | As before |
+| Church level | Save `SubLevelSaveData._list[]` (`_key`, `_level`), names from `sublevelinfo` | `Religion_Hernand` (1000), `Religion_Demenissian` (1001), `Religion_Delesyian` (1002). No save entry = level 0 (Burnhand, Demeniss: +0% in game). Pailune has no church: +0% (Beighen, 2026-11-13). Crimson Desert: unknown. Calphade nodes are in Hernandian territory (see mission-regions.md) |
+| Mission's region | `regioninfo` parent links up to the territory (from 2.05.00, `mission-regions.md`); else the node internal-name prefix (`Her`, `Dem`, `Del`, …) | |
 | Mission's skill type | `factionnode` operation record: the u32 right after the category string, e.g. `Farming` then `76 42 0f 00` = 1000054 | Matched to the skill whose status key is the same |
 | Skill status and percent | `skill` table, `Skill_<Type>_I/II/III` | See below |
 | Assigned comrades | Save node `_operatorMercenaryList[]._mercenaryNo` → `MercenaryClanSaveData._mercenaryDataList[]` (`_mercenaryNo`, `_characterKey`) | |
