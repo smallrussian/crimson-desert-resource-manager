@@ -3,7 +3,7 @@
 ; places only the launcher-only ASI, its ini and the ASI loader in the game's bin64 (AGENTS.md hard rule 1).
 
 #ifndef AppVersion
-  #define AppVersion "0.2.0"
+  #define AppVersion "0.3.0"
 #endif
 
 [Setup]
