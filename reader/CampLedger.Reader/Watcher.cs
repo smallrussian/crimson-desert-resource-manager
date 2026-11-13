@@ -89,9 +89,10 @@ public sealed class Watcher
     public event Action? GameClosed;
 
     /// <summary>
-    /// With the game closed: if the newest save was written after the last save snapshot in the log (e.g. the game
-    /// was played without the reader), read it once (from a copy, as always) and append it, so the dashboard shows
-    /// the latest saved values. Only the process that holds <see cref="ReaderHost.WatchMutexName"/> may call this.
+    /// With the game closed: read the newest save once (from a copy, as always) and append it when it says something
+    /// the log does not: a save written after the last save snapshot (game played without the reader), or the same
+    /// save decoded differently (e.g. a reader update after a game patch now validates rewards the old build could
+    /// not). Only the process that holds <see cref="ReaderHost.WatchMutexName"/> may call this.
     /// </summary>
     public bool CatchUpFromSave(Snapshot? lastSave)
     {
@@ -100,21 +101,39 @@ public sealed class Watcher
         string? version = GameVersion.FromInstall(install);
         var probe = new SaveSource(gameVersion: version);
         var newest = probe.NewestSave();
-        if (newest is null || !NeedsCatchUp(newest.LastWriteTimeUtc, lastSave)) return false;
+        if (newest is null) return false;
+        bool newer = NeedsCatchUp(newest.LastWriteTimeUtc, lastSave);
 
         var (catalogue, problem) = ReaderHost.LoadCatalogue(null);
         var save = new SaveSource(gameVersion: version, catalogue: catalogue, catalogueProblem: problem);
         switch (save.ReadFile(newest.FullName))
         {
-            case SourceResult.Ok ok:
-                ReaderHost.Log($"caught up from a save written {newest.LastWriteTime:yyyy-MM-dd HH:mm} (game not running)");
+            case SourceResult.Ok ok when newer || !SameContent(lastSave!, ok.Snapshot):
+                ReaderHost.Log(newer
+                    ? $"caught up from a save written {newest.LastWriteTime:yyyy-MM-dd HH:mm} (game not running)"
+                    : "re-read the newest save: this reader decodes it differently from the last snapshot");
                 Write(ok.Snapshot);
                 return true;
+            case SourceResult.Ok:
+                return false;
             case SourceResult.Unavailable u:
                 ReaderHost.Log("could not catch up from the newest save: " + u.Reason);
                 return false;
         }
         return false;
+    }
+
+    /// <summary>Same decoded content, ignoring the snapshot's own id and read time.</summary>
+    public static bool SameContent(Snapshot a, Snapshot b)
+    {
+        static string Body(Snapshot s)
+        {
+            var node = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(s, JsonLine))!.AsObject();
+            node.Remove("id");
+            node.Remove("capturedAt");
+            return node.ToJsonString();
+        }
+        return Body(a) == Body(b);
     }
 
     /// <summary>True when a save written at <paramref name="saveWrittenUtc"/> is newer than what the log holds.</summary>
