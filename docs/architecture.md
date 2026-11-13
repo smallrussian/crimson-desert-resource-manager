@@ -224,8 +224,8 @@ game folder.
 release. When it finds a newer one, it offers **Update and restart**: it downloads `CampLedgerSetup-X.Y.Z.exe`,
 checks its size and the SHA-256 GitHub reports for the asset, and runs the same Inno installer silently over the
 existing install. The installer waits for the old process to exit and relaunches the app, in the window or in the
-tray as it was. Releases are built by `.github/workflows/release.yml` on a `vX.Y.Z` tag, as drafts the owner
-publishes. Procedure and acceptance rules: [release.md](release.md).
+tray as it was. Releases are built and published by `.github/workflows/release.yml` when a version bump is merged
+into `main` (owner's choice, 2026-11-13: publish as soon as tests pass, no draft step). Procedure and acceptance rules: [release.md](release.md).
 
 **Why.** No new dependency and no hosting. One installer serves both first installs and updates, so the "start with
 the game" task, the uninstall cleanup and the per-user folder all keep working. Game patches need new
