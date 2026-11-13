@@ -363,4 +363,128 @@ public class ReaderTests
         Assert.Equal("Hernand", Catalogue.RegionOf("Node_Her_SouthQuarry_Work_Stone_Tier2"));
         Assert.Null(Catalogue.RegionOf("Node_Zzz_Unknown"));
     }
+
+    // ---- start conditions (docs/re-notes/available-missions.md) ----
+
+    static Table Named(params (uint Key, string Name)[] recs) =>
+        TableOf(recs.Select(r => (r.Key, new Bytes().Str(r.Name).U32(r.Key).Zero(8).Done())).ToArray());
+
+    static ConditionBook BookFixture() => new(
+        new()
+        {
+            TableOf(
+                (1010005u, new Bytes().Str("Macro(OperationPlayable), parserType:0").U32(1010005).Zero(9).Str("Macro(OperationPlayable)").Done()),
+                (1000021u, new Bytes().Str("OperationPlayable").U32(1000021).U8(1).U8(3).Zero(8).Str("CheckGamePlayVariable(BaseCamp_Lv1)").Done()),
+                (1010009u, new Bytes().Str("(CheckFactionWantedLevel()<4), parserType:0").U32(1010009).Zero(9).Done()),
+                (1010044u, new Bytes().Str("CheckGamePlayVariable(BaseCamp_Lv3), parserType:0").U32(1010044).Zero(9).Done())),
+        },
+        new Dictionary<string, List<Table>>
+        {
+            ["gameplayvariable"] = new() { Named((1000005, "BaseCamp_Lv1"), (1000007, "BaseCamp_Lv3"), (1000009, "BaseCamp_Lv5")) },
+            ["knowledge"] = new() { Named((1000350, "Knowledge_Node_Her_GlenbrightFarm")) },
+            ["mission"] = new() { Named((1000001, "Mission_Done"), (1000002, "Mission_Started"), (1000003, "Mission_Never")) },
+            ["quest"] = new() { Named((10001, "Quest_Intro")) },
+            ["stage"] = new() { Named((1000614, "Intro_Tutorial_I")) },
+            ["character"] = new() { Named((1000068, "NHM_Unique_Stone_Flint")) },
+            ["node"] = new() { Named((1000311, "Node_Her_GlenbrightFarm")) },
+        });
+
+    static GameFacts FactsFixture() => new()
+    {
+        GamePlayVariables = new() { 1000005, 1000007 },
+        Knowledge = new() { 1000350 },
+        CompletedMissions = new() { 1000001 },
+        KnownMissions = new() { 1000001, 1000002 },
+        CompletedQuests = new() { 10001 },
+        CompletedStages = new(),
+        Sublevels = new() { ["Contribution_Graymane"] = 12 },
+        Hired = new() { [1000068] = 1 },
+        Nodes = new() { [1000311] = (2, false) },
+        Running = new(),
+        NoManagementRents = true,
+        OperationKeyOf = _ => null,
+    };
+
+    [Fact]
+    public void Condition_records_give_the_expression_and_resolve_macros()
+    {
+        var book = BookFixture();
+        Assert.Equal("Macro(OperationPlayable)", book.Expression(1010005));
+        Assert.Equal("CheckGamePlayVariable(BaseCamp_Lv1)", book.Macro("OperationPlayable"));
+        Assert.Equal("(CheckFactionWantedLevel()<4)", book.Expression(1010009));
+        var e = new ConditionEvaluator(book, FactsFixture());
+        Assert.Equal(Tri.True, e.Evaluate("Macro(OperationPlayable)").Value);
+    }
+
+    [Theory]
+    [InlineData("CheckGamePlayVariable(BaseCamp_Lv3)", Tri.True)]
+    [InlineData("!CheckGamePlayVariable(BaseCamp_Lv5)", Tri.True)]
+    [InlineData("CheckGamePlayVariable(BaseCamp_Lv3) && !CheckGamePlayVariable(BaseCamp_Lv3)", Tri.False)]
+    [InlineData("CheckGamePlayVariable(BaseCamp_Lv5) || CheckKnowledge(Knowledge_Node_Her_GlenbrightFarm)", Tri.True)]
+    [InlineData("CompleteMission(Mission_Done) && CompleteQuest(Quest_Intro)", Tri.True)]
+    [InlineData("CompleteStage(Intro_Tutorial_I)", Tri.False)]
+    [InlineData("GetCurrentSubLevel(Contribution_Graymane)>=10", Tri.True)]
+    [InlineData("GetCurrentSubLevel(Contribution_Graymane)>=20", Tri.False)]
+    [InlineData("GetCurrentSubLevel(Religion_Nowhere)>=1", Tri.False)]
+    [InlineData("!IsHiredMercenary(NHM_Unique_Stone_Flint)", Tri.False)]
+    [InlineData("GetMercenaryHiredCount(NHM_Unique_Stone_Flint)<999", Tri.True)]
+    [InlineData("GetFactionNodeState(Node_Her_GlenbrightFarm)==Normal", Tri.True)]
+    [InlineData("CompleteSubMission(Mission_Done, 1)", Tri.True)]
+    [InlineData("CompleteSubMission(Mission_Never, 0)", Tri.False)]
+    [InlineData("CompleteSubMission(Mission_Started, 0)", Tri.Unknown)]
+    [InlineData("!CheckFactionManagementRent(Faction_Graymane, Node_X, management_x)", Tri.True)]
+    [InlineData("CheckGlobalGameEvent(Graymane_Party_Hernandian)", Tri.Unknown)]
+    [InlineData("CheckGamePlayVariable(No_Such_Variable)", Tri.Unknown)]
+    [InlineData("CheckGlobalGameEvent(X) && CheckGamePlayVariable(BaseCamp_Lv5)", Tri.False)]
+    public void Conditions_evaluate_with_three_valued_logic(string expr, Tri expected)
+    {
+        Assert.Equal(expected, new ConditionEvaluator(BookFixture(), FactsFixture()).Evaluate(expr).Value);
+    }
+
+    [Fact]
+    public void Wanted_level_is_an_assumption_not_a_fact()
+    {
+        var v = new ConditionEvaluator(BookFixture(), FactsFixture()).Evaluate("(CheckFactionWantedLevel()<4)");
+        Assert.Equal(Tri.True, v.Value);
+        Assert.Contains(v.Assumptions, a => a.Contains("wanted level"));
+        Assert.Equal(Tri.Unknown, new ConditionEvaluator(BookFixture(), FactsFixture()).Evaluate("CheckFactionWantedLevel()>2").Value);
+    }
+
+    [Fact]
+    public void Facts_not_read_make_conditions_unknown()
+    {
+        var v = new ConditionEvaluator(BookFixture(), new GameFacts()).Evaluate("CheckGamePlayVariable(BaseCamp_Lv1)");
+        Assert.Equal(Tri.Unknown, v.Value);
+        Assert.NotEmpty(v.Unknown);
+    }
+
+    [Fact]
+    public void Node_record_gives_its_discovery_knowledge()
+    {
+        // name, node key, 11 bytes, knowledge key (15 bytes after the node key), as in Node_Her_GlenbrightFarm.
+        var rec = new Bytes().Str("Node_Her_GlenbrightFarm").U32(1000311).Zero(4).U32(2).Zero(3).U32(1000350).Zero(16).Done();
+        Assert.Equal(1000350u, Catalogue.NodeKnowledgeKey(rec, 1000311));
+        Assert.Null(Catalogue.NodeKnowledgeKey(rec, 1000312));
+    }
+
+    [Fact]
+    public void Operation_record_gives_its_condition_list()
+    {
+        // op key, filler that holds a stray small number, count 2, two 13-byte entries, then the internal name.
+        var rec = new Bytes().U32(3624579346).Zero(20).U32(3).U32(77).Zero(6)
+            .U32(2).U32(1010005).Zero(9).U32(1010009).Zero(9).Zero(10).Str("Node_Her_GlenbrightFarm_Work_Food_Farm_Tier1").Done();
+        var keys = Catalogue.ConditionKeys(rec, 3624579346, "Node_Her_GlenbrightFarm_Work_Food_Farm_Tier1",
+                                           k => k is 1010005 or 1010009);
+        Assert.Equal(new uint[] { 1010005, 1010009 }, keys);
+    }
+
+    [Fact]
+    public void Table_header_with_u32_count_is_read()
+    {
+        var body = new Bytes().Str("Quest_Intro").Done();
+        var head = new Bytes().U32(1).U32(10001).U32(0).Done();     // questinfo-style: u32 count
+        Assert.Equal((4, 4), Archive.HeadFormat(head));
+        Assert.Equal("Quest_Intro", new Table(body, head, 4, 4).Name(10001));
+        Assert.Equal((2, 4), Archive.HeadFormat(new Bytes().U16(1).U32(5).U32(0).Done()));
+    }
 }

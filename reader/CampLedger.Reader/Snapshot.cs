@@ -13,10 +13,13 @@ public sealed class Snapshot
     public Workers Workers { get; init; } = new();
     public List<Mission> Missions { get; init; } = new();
     /// <summary>
-    /// Missions that look startable: at a node whose save state is 2 and not blockaded, and not running now.
-    /// Candidate list, not yet checked against the game's dispatch board (docs/re-notes/available-missions.md).
+    /// Missions that can be started now: node discovered and not blockaded, every start condition in the game data
+    /// met, not running. See docs/re-notes/available-missions.md. Entries with <c>unconfirmed</c> depend on
+    /// something the source could not settle.
     /// </summary>
     public List<Mission> AvailableMissions { get; init; } = new();
+    /// <summary>Camp level from the save (highest BaseCamp_LvN game-play variable set), or null.</summary>
+    public int? CampLevel { get; init; }
     /// <summary>In-game clock in milliseconds (save field _fieldTimeRaw), or null.</summary>
     public ulong? InGameClock { get; init; }
     /// <summary>Things this snapshot could not establish, in plain words.</summary>
@@ -79,6 +82,10 @@ public sealed class Mission
     /// <summary>Reward bonus inputs. The calc core turns these into a total with the user's camp level.</summary>
     public MissionBonus? Bonus { get; set; }
     public string? PersonalStorageReward { get; set; }
+    /// <summary>Available missions only: what was assumed to list it, e.g. wanted level below 4.</summary>
+    public List<string>? Assumptions { get; set; }
+    /// <summary>Available missions only: start conditions the source could not settle. Null when all were checked.</summary>
+    public List<string>? Unconfirmed { get; set; }
 
     // Identifiers and state read from the save. Names, costs and rewards need the game's static tables.
     public long? NodeKey { get; set; }

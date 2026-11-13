@@ -58,6 +58,46 @@ static class P
             byte[] raw = File.ReadAllBytes(copy);
             File.Delete(copy);
             var body = new CampLedger.Reader.SaveBody(CampLedger.Reader.SaveCrypto.Decode(raw));
+            if (a.Length > 2 && a[1] == "fields")
+            {
+                // savenodes fields <regex> : every type/field name in the save schema matching the regex.
+                var rx = new System.Text.RegularExpressions.Regex(a[2], System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                foreach (var t in body.Types)
+                    foreach (var f in t.Fields.Where(f => rx.IsMatch(f.Name) || rx.IsMatch(t.Name)))
+                        Console.WriteLine($"{t.Name}.{f.Name} : {f.TypeName}");
+                return 0;
+            }
+            if (a.Length > 1 && a[1] == "blocks")
+            {
+                // savenodes blocks              -> list block types with sizes and field names
+                // savenodes blocks <Type> [filter] -> dump a decoded block (lists truncated)
+                static string Dump(object? v, int depth, int maxList) => v switch
+                {
+                    List<object?> l => depth > 4 ? $"list[{l.Count}]" : "[" + string.Join("; ", l.Take(maxList).Select(x => Dump(x, depth + 1, maxList))) + (l.Count > maxList ? $"; …{l.Count}" : "") + "]",
+                    Dictionary<string, object?> d => "{" + string.Join(", ", d.Where(kv => kv.Key != "__type").Select(kv => $"{kv.Key}={Dump(kv.Value, depth + 1, maxList)}")) + "}",
+                    _ => Convert.ToString(v, System.Globalization.CultureInfo.InvariantCulture) ?? "null",
+                };
+                if (a.Length == 2)
+                {
+                    foreach (var b in body.Blocks.OrderBy(b => b.TypeName))
+                        Console.WriteLine($"{b.TypeName,-45} {b.Size,9}  {string.Join(",", body.Types[b.TypeIndex].Fields.Select(f => f.Name)).PadRight(0)[..Math.Min(160, string.Join(",", body.Types[b.TypeIndex].Fields.Select(f => f.Name)).Length)]}");
+                    return 0;
+                }
+                var blk = body.Decode(a[2]);
+                if (blk is null) { Console.WriteLine("no such block"); return 1; }
+                int max = a.Length > 4 ? int.Parse(a[4]) : 40;
+                foreach (var (k, v) in blk)
+                {
+                    if (k == "__type") continue;
+                    if (v is List<object?> l)
+                    {
+                        Console.WriteLine($"{k}: list[{l.Count}]");
+                        foreach (var x in l.Where(x => a.Length < 4 || a[3] == "-" || Dump(x, 0, 99).Contains(a[3])).Take(max)) Console.WriteLine("  " + Dump(x, 0, 12));
+                    }
+                    else Console.WriteLine($"{k} = {Dump(v, 0, 12)}");
+                }
+                return 0;
+            }
             var faction = body.Decode("FactionSaveData")!;
             var nodes = ((List<object?>)faction["_factionNodeElementSaveDataList"]!).OfType<Dictionary<string, object?>>().ToList();
             Console.WriteLine($"{src.FullName}: {nodes.Count} nodes; top-level fields: {string.Join(", ", faction.Keys)}");
@@ -92,6 +132,69 @@ static class P
                 string State(uint node) => byNode.TryGetValue(node, out var n)
                     ? $"state={n.GetValueOrDefault("_factionState")} block={n.GetValueOrDefault("_isBlock") ?? "-"} by={n.GetValueOrDefault("_blockadingFactionKey") ?? "-"} conq={n.GetValueOrDefault("_conquerorFactionKey") ?? "-"} sub={n.GetValueOrDefault("_blockSubType") ?? "-"} skills={(n.GetValueOrDefault("_factionNodeApplySkillList") as List<object?>)?.Count.ToString() ?? "-"}"
                     : "not in save";
+                if (a.Length > 2 && a[2] == "unlock")
+                {
+                    // Per mission node: knowledge key from the factionnode record (u32 15 bytes after the node key),
+                    // whether the save has it learned, and the node's controlling factions vs the player's relations.
+                    var know = ((List<object?>)body.Decode("KnowledgeSaveData")!["_list"]!).OfType<Dictionary<string, object?>>()
+                        .ToDictionary(k => Convert.ToUInt32(k["_key"]), k => Convert.ToInt32(k.GetValueOrDefault("_level") ?? 0));
+                    var player = ((List<object?>)faction["_factionElementSaveDataList"]!).OfType<Dictionary<string, object?>>()
+                        .First(f => Convert.ToString(f["_ownerFactionKey"]) == "1000000");
+                    var rel = ((List<object?>)player["_factionRelationDataList"]!).OfType<Dictionary<string, object?>>()
+                        .ToDictionary(r => Convert.ToUInt32(r["_targetFactionKey"]), r => Convert.ToInt32(r.GetValueOrDefault("_relationTypeRaw") ?? 0));
+                    var tables = new CampLedger.Reader.Archive(CampLedger.Reader.GameInstall.Find(null)!).Tables("factionnode");
+                    uint? Knowledge(uint node)
+                    {
+                        var t = tables.LastOrDefault(t => t.Records.ContainsKey(node));
+                        if (t is null) return null;
+                        var (s, e) = t.Records[node];
+                        var r = t.Body.AsSpan(s, e - s);
+                        int nl = (int)BitConverter.ToUInt32(r);
+                        if (4 + nl + 4 + 19 > r.Length || BitConverter.ToUInt32(r.Slice(4 + nl)) != node) return null;
+                        return BitConverter.ToUInt32(r.Slice(4 + nl + 15));
+                    }
+                    string Rel(object? f) => f is null ? "-" : $"{f}:{rel.GetValueOrDefault(Convert.ToUInt32(f), -1)}";
+                    if (a.Length > 3)
+                    {
+                        // camp unlock <namefilter>: u32 keys (1,000,000-1,100,000) inside each op's record segment and their save state.
+                        var q = body.Decode("QuestSaveData")!;
+                        var st = new Dictionary<uint, string>();
+                        void Add(string list, string keyField, string tag)
+                        {
+                            foreach (var e in ((List<object?>)q[list]!).OfType<Dictionary<string, object?>>())
+                                st[Convert.ToUInt32(e[keyField])] = (st.TryGetValue(Convert.ToUInt32(e[keyField]), out var p) ? p + "," : "") + $"{tag}{e.GetValueOrDefault("_state")}";
+                        }
+                        Add("_stageStateData", "_key", "stage"); Add("_missionStateList", "_key", "mission"); Add("_questStateList", "_questKey", "quest");
+                        foreach (var (kk, lv) in know) st[kk] = (st.TryGetValue(kk, out var p2) ? p2 + "," : "") + $"know{lv}";
+                        foreach (var o in ops.Where(o => (o.InternalName ?? "").Contains(a[3], StringComparison.OrdinalIgnoreCase)))
+                        {
+                            var t = tables.Last(t => t.Records.ContainsKey(o.NodeKey));
+                            var (s, e) = t.Records[o.NodeKey];
+                            var r = t.Body.AsSpan(s, e - s);
+                            var kb = BitConverter.GetBytes(o.Key);
+                            int at = r.IndexOf(kb);
+                            int nameAt = r.Slice(at).IndexOf(System.Text.Encoding.ASCII.GetBytes(o.InternalName!)) + at;
+                            var refs = new List<string>();
+                            for (int i = at + 4; i + 4 <= nameAt; i++)
+                            {
+                                uint v = BitConverter.ToUInt32(r.Slice(i));
+                                if (v is >= 1_000_000 and <= 1_100_000) refs.Add($"{v}@{i - at}[{st.GetValueOrDefault(v, "none")}]");
+                            }
+                            Console.WriteLine($"{o.InternalName} op {o.Key}: {string.Join(" ", refs)}");
+                        }
+                        return 0;
+                    }
+                    var rows = ops.Select(o =>
+                    {
+                        byNode.TryGetValue(o.NodeKey, out var n);
+                        uint? k = Knowledge(o.NodeKey);
+                        return (o, n, k, learned: k is uint kk && know.ContainsKey(kk) ? know[kk] : 0);
+                    }).ToList();
+                    foreach (var g in rows.GroupBy(r => $"state={r.n?.GetValueOrDefault("_factionState")} block={(r.n?.ContainsKey("_isBlock") == true ? "Y" : "-")} know={(r.k is null ? "?" : r.learned.ToString())} by={Rel(r.n?.GetValueOrDefault("_blockadingFactionKey"))} conq={Rel(r.n?.GetValueOrDefault("_conquerorFactionKey"))}")
+                                             .OrderBy(g => g.Key))
+                        Console.WriteLine($"{g.Count(),4} {g.Select(r => r.o.NodeKey).Distinct().Count(),3}n  {g.Key}  e.g. {string.Join("; ", g.Take(3).Select(r => $"{cat.NodeLocation(r.o.NodeKey) ?? r.o.InternalName}/{cat.OperationDisplayName(r.o.Key)}"))}");
+                    return 0;
+                }
                 if (a.Length > 2 && a[2] == "held")
                 {
                     bool Held(uint node) => byNode.TryGetValue(node, out var n) && Convert.ToString(n.GetValueOrDefault("_factionState")) == "2"
@@ -118,6 +221,108 @@ static class P
             foreach (string want in a.Skip(1))
                 foreach (var n in nodes.Where(n => Convert.ToString(n.GetValueOrDefault("_ownerFactionKey")) == want))
                     Console.WriteLine($"node {want}: " + string.Join(", ", n.Select(kv => $"{kv.Key}={(kv.Value is List<object?> l ? $"list[{l.Count}]" : kv.Value)}")));
+            return 0;
+        }
+        if (a[0] == "conds")
+        {
+            // Survey: every condition expression referenced by dispatch ops (count + 13-byte entries), macros expanded.
+            var ar = new CampLedger.Reader.Archive(CampLedger.Reader.GameInstall.Find(null)!);
+            var cond = new Dictionary<uint, (string Name, string Expr)>();
+            foreach (var t in ar.Tables("conditioninfo"))
+                foreach (var (k, (s, en)) in t.Records)
+                {
+                    var r = t.Body.AsSpan(s, en - s);
+                    var strs = new List<string>();
+                    for (int i = 0; i + 4 < r.Length && strs.Count < 2; i++)
+                    {
+                        int L = (int)BitConverter.ToUInt32(r.Slice(i));
+                        if (L is < 1 or > 400 || i + 4 + L > r.Length) continue;
+                        var str = r.Slice(i + 4, L); bool ok = true;
+                        foreach (var c in str) if (c is < 32 or > 126) { ok = false; break; }
+                        if (ok) { strs.Add(System.Text.Encoding.ASCII.GetString(str)); i += 3 + L; }
+                    }
+                    if (strs.Count == 2) cond[k] = (strs[0], strs[1]); if (strs.Count == 2 && strs[1] == "Dock") Console.WriteLine($"Dock: {k} name={strs[0]} len={en - s}");
+                }
+            var byName = cond.Values.GroupBy(c => c.Name).ToDictionary(g => g.Key, g => g.Last().Expr);
+            Console.WriteLine($"{cond.Count} conditions");
+            var cat = new CampLedger.Reader.Catalogue(ar);
+            var ops = ((Dictionary<uint, CampLedger.Reader.OperationInfo>)typeof(CampLedger.Reader.Catalogue)
+                .GetField("_operations", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+                .GetValue(cat)!).Values.Where(o => o.Category is not null).ToList();
+            var fn = ar.Tables("factionnode");
+            var used = new Dictionary<string, int>(); int noList = 0;
+            foreach (var o in ops)
+            {
+                var t = fn.Last(t => t.Records.ContainsKey(o.NodeKey));
+                var (s, e) = t.Records[o.NodeKey];
+                var r = t.Body.AsSpan(s, e - s);
+                int at = r.IndexOf(BitConverter.GetBytes(o.Key));
+                int end = r.Slice(at).IndexOf(System.Text.Encoding.ASCII.GetBytes(o.InternalName!)) + at;
+                bool found = false;
+                for (int i = at + 4; i + 4 < end && !found; i++)
+                {
+                    int n = (int)BitConverter.ToUInt32(r.Slice(i));
+                    if (n is < 1 or > 12 || i + 4 + 13 * n > end) continue;
+                    var keys = new List<uint>(); for (int j = 0; j < n; j++) keys.Add(BitConverter.ToUInt32(r.Slice(i + 4 + 13 * j)));
+                    if (!keys.All(cond.ContainsKey)) continue;
+                    found = true;
+                    foreach (var k in keys) used[cond[k].Expr] = used.GetValueOrDefault(cond[k].Expr) + 1;
+                    if (a.Length > 1 && o.InternalName!.Contains(a[1])) Console.WriteLine($"{o.InternalName} @{i - at}: " + string.Join(" | ", keys.Select(k => cond[k].Expr)));
+                }
+                if (!found) noList++;
+            }
+            Console.WriteLine($"ops without a list: {noList}");
+            foreach (var (x, c) in used.OrderByDescending(u => u.Value)) Console.WriteLine($"{c,5}  {x}");
+            Console.WriteLine("macros:");
+            foreach (var m in used.Keys.SelectMany(x => System.Text.RegularExpressions.Regex.Matches(x, @"Macro\((\w+)\)").Select(mm => mm.Groups[1].Value)).Distinct())
+                Console.WriteLine($"  {m} = {byName.GetValueOrDefault(m, "?")}");
+            return 0;
+        }
+        if (a[0] == "findkey")
+        {
+            // findkey <namesFile> <key...> : which tables have a record with this key (first string shown).
+            var ar = new CampLedger.Reader.Archive(CampLedger.Reader.GameInstall.Find(null)!);
+            foreach (var name in File.ReadAllLines(a[1]).Select(l => l.Trim()).Where(l => l.Length > 0).Distinct())
+            {
+                List<CampLedger.Reader.Table> ts;
+                try { ts = ar.Tables(name); } catch { continue; }
+                foreach (var ks in a.Skip(2))
+                {
+                    uint key = uint.Parse(ks);
+                    var t = ts.LastOrDefault(t => t.Records.ContainsKey(key));
+                    if (t is null) continue;
+                    var (s, en) = t.Records[key];
+                    int L = (int)BitConverter.ToUInt32(t.Body, s);
+                    string first = L is > 0 and < 100 ? System.Text.Encoding.ASCII.GetString(t.Body, s + 4, L) : "?";
+                    Console.WriteLine($"{key} {name}: {first} ({en - s} bytes)");
+                }
+            }
+            return 0;
+        }
+        if (a[0] == "rec")
+        {
+            // rec <table> <key> [hexFrom hexTo] : printable length-prefixed strings in a record, optional hex window.
+            var ts = new CampLedger.Reader.Archive(CampLedger.Reader.GameInstall.Find(null)!).Tables(a[1]);
+            uint key = uint.Parse(a[2]);
+            var t = ts.LastOrDefault(t => t.Records.ContainsKey(key));
+            if (t is null) { Console.WriteLine($"not found ({ts.Count} tables, {ts.Sum(x => x.Records.Count)} records)"); return 1; }
+            var (s, en) = t.Records[key];
+            var r = t.Body.AsSpan(s, en - s);
+            Console.WriteLine($"{r.Length} bytes");
+            for (int i = 0; i + 4 < r.Length; i++)
+            {
+                int L = (int)BitConverter.ToUInt32(r.Slice(i));
+                if (L is < 3 or > 100 || i + 4 + L > r.Length) continue;
+                var str = r.Slice(i + 4, L);
+                bool ok = true; foreach (var c in str) if (c is < 32 or > 126) { ok = false; break; }
+                if (ok) Console.WriteLine($"  @{i} \"{System.Text.Encoding.ASCII.GetString(str)}\"");
+            }
+            if (a.Length > 4)
+                for (int i = int.Parse(a[3]); i < Math.Min(r.Length, int.Parse(a[4])); i += 16)
+                {
+                    var row = r.Slice(i, Math.Min(16, r.Length - i)).ToArray();
+                    Console.WriteLine($"  {i,5} {Convert.ToHexString(row)}  " + string.Join(" ", Enumerable.Range(0, row.Length / 4).Select(j => BitConverter.ToUInt32(row, j * 4))));
+                }
             return 0;
         }
         if (a[0] == "nodefind")

@@ -127,22 +127,30 @@ public sealed class Archive
                                       .GroupBy(e => (e.Name, Path.GetDirectoryName(e.Paz))))
         {
             var parts = group.Select(Read).ToList();
-            // Header: u16 count, then count x (u32 key, u32 offset). The body is the other part.
-            // Most tables use u32 keys; a few (regioninfo) use u16 keys, so header entries are 6 bytes.
-            byte[]? head = parts.FirstOrDefault(p => KeySize(p) != 0);
+            // Header: count, then count x (key, u32 offset). The body is the other part.
+            // The count is u16 on most tables and u32 on some (questinfo, stageinfo); keys are u32 on most
+            // tables and u16 on a few (regioninfo), so header entries are 8 or 6 bytes.
+            byte[]? head = parts.FirstOrDefault(p => HeadFormat(p).KeySize != 0);
             byte[]? body = parts.FirstOrDefault(p => !ReferenceEquals(p, head));
             if (head is null || body is null) throw new InvalidDataException($"{table}: header and body not found");
-            result.Add(new Table(body, head, KeySize(head)));
+            var (countSize, keySize) = HeadFormat(head);
+            result.Add(new Table(body, head, keySize, countSize));
         }
         if (result.Count == 0) throw new InvalidDataException($"table {table} not found");
         return result;
     }
 
-    static int KeySize(byte[] p)
+    public static (int CountSize, int KeySize) HeadFormat(byte[] p)
     {
-        if (p.Length < 2) return 0;
-        int n = BinaryPrimitives.ReadUInt16LittleEndian(p);
-        return p.Length == 2 + 8 * n ? 4 : p.Length == 2 + 6 * n ? 2 : 0;
+        if (p.Length < 2) return (0, 0);
+        long n16 = BinaryPrimitives.ReadUInt16LittleEndian(p);
+        if (p.Length == 2 + 8 * n16) return (2, 4);
+        if (p.Length == 2 + 6 * n16) return (2, 2);
+        if (p.Length < 4) return (0, 0);
+        long n32 = BinaryPrimitives.ReadUInt32LittleEndian(p);
+        if (p.Length == 4 + 8 * n32) return (4, 4);
+        if (p.Length == 4 + 6 * n32) return (4, 2);
+        return (0, 0);
     }
 
     /// <summary>A string table in one language, base first then DLC copies. Throws if none is found.</summary>
@@ -178,15 +186,16 @@ public sealed class Table
     public byte[] Body { get; }
     public Dictionary<uint, (int Start, int End)> Records { get; } = new();
 
-    public Table(byte[] body, byte[] head, int keySize = 4)
+    public Table(byte[] body, byte[] head, int keySize = 4, int countSize = 2)
     {
         Body = body;
-        int n = BinaryPrimitives.ReadUInt16LittleEndian(head), step = keySize + 4;
+        int n = countSize == 4 ? (int)BinaryPrimitives.ReadUInt32LittleEndian(head) : BinaryPrimitives.ReadUInt16LittleEndian(head);
+        int step = keySize + 4, c = countSize;
         var entries = new (uint Key, int Offset)[n];
         for (int i = 0; i < n; i++)
-            entries[i] = (keySize == 2 ? BinaryPrimitives.ReadUInt16LittleEndian(head.AsSpan(2 + step * i))
-                                       : BinaryPrimitives.ReadUInt32LittleEndian(head.AsSpan(2 + step * i)),
-                          (int)BinaryPrimitives.ReadUInt32LittleEndian(head.AsSpan(2 + keySize + step * i)));
+            entries[i] = (keySize == 2 ? BinaryPrimitives.ReadUInt16LittleEndian(head.AsSpan(c + step * i))
+                                       : BinaryPrimitives.ReadUInt32LittleEndian(head.AsSpan(c + step * i)),
+                          (int)BinaryPrimitives.ReadUInt32LittleEndian(head.AsSpan(c + keySize + step * i)));
         var starts = entries.Select(e => e.Offset).Distinct().Order().ToList();
         starts.Add(body.Length);
         var next = new Dictionary<int, int>();

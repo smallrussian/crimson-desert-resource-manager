@@ -72,7 +72,7 @@ public sealed class SaveSource : ISource
     {
         var unknowns = new List<string>
         {
-            "mission rewards are base amounts; bonus inputs are in missions[].bonus, and the total needs the camp level (a user setting)",
+            "mission rewards are base amounts; bonus inputs are in missions[].bonus and the camp level in campLevel",
         };
         if (_catalogue is { HasDisplayNames: false })
             unknowns.Add("English names not loaded: " + _catalogue.NamesProblem);
@@ -133,6 +133,10 @@ public sealed class SaveSource : ISource
             missions.Add(mission);
         }
 
+        var facts = Facts(body, faction, subBlock is null ? null : sublevels);
+        int? campLevel = CampLevel(facts);
+        if (campLevel is null) unknowns.Add("camp level unknown: no BaseCamp_Lv game-play variable read");
+
         ulong? clock = null;
         foreach (var f in List(body.Decode("TransformSaveData"), "_fieldSaveDataList"))
             if (f.TryGetValue("_fieldTimeRaw", out var t) && t is ulong u) clock = u;
@@ -145,7 +149,8 @@ public sealed class SaveSource : ISource
             Reserves = reserves,
             Workers = new Workers { Total = TotalWorkers(body, unknowns), InUse = faction is null ? null : inUse },
             Missions = missions,
-            AvailableMissions = Available(faction, missions, sublevels, subBlock is not null, unknowns),
+            CampLevel = campLevel,
+            AvailableMissions = Available(faction, missions, sublevels, subBlock is not null, facts, unknowns),
             InGameClock = clock,
             Unknowns = unknowns,
         };
@@ -217,33 +222,145 @@ public sealed class SaveSource : ISource
     }
 
     /// <summary>
-    /// Candidate startable missions. Node rule (2.04.08): `_factionState` 2 and no `_isBlock`. Not checked against
-    /// the game yet; finished one-off builds cannot be told apart from open ones, so they may be listed.
+    /// Per-save facts for the game's start conditions. A block that is missing leaves its set null (unknown).
+    /// Quest, mission and stage state 5 is "completed" (entries with a completion time; 2.04.08).
+    /// </summary>
+    GameFacts Facts(SaveBody body, Dictionary<string, object?>? faction, Dictionary<string, long>? sublevels)
+    {
+        static HashSet<uint> Keys(IEnumerable<Dictionary<string, object?>> list, string field, Func<Dictionary<string, object?>, bool> keep)
+            => list.Where(keep).Select(e => Long(e, field)).OfType<long>().Select(k => (uint)k).ToHashSet();
+        static bool Done(Dictionary<string, object?> e) => Long(e, "_state") == 5;
+
+        var gpv = body.Decode("GamePlayVariableSaveData");
+        var know = body.Decode("KnowledgeSaveData");
+        var quest = body.Decode("QuestSaveData");
+        var clan = body.Decode("MercenaryClanSaveData");
+        Dictionary<uint, int>? hired = null;
+        if (clan is not null)
+        {
+            hired = new();
+            foreach (var m in List(clan, "_mercenaryDataList"))
+                if (Long(m, "_characterKey") is long ck) hired[(uint)ck] = hired.GetValueOrDefault((uint)ck) + 1;
+        }
+        Dictionary<uint, (long, bool)>? nodes = null;
+        Dictionary<uint, uint>? running = null;
+        if (faction is not null)
+        {
+            nodes = new();
+            running = new();
+            foreach (var n in List(faction, "_factionNodeElementSaveDataList"))
+            {
+                if (Long(n, "_ownerFactionKey") is not long nk) continue;
+                nodes[(uint)nk] = (Long(n, "_factionState") ?? 0, n.ContainsKey("_isBlock"));
+                if (Long(n, "_operationKey") is long op) running[(uint)nk] = (uint)op;
+            }
+        }
+        return new GameFacts
+        {
+            GamePlayVariables = gpv is null ? null
+                : Keys(List(gpv, "_gamePlayVariableElementSaveData"), "_gamePlayVariableKey", e => e.GetValueOrDefault("_currentVariable") is true),
+            Knowledge = know is null ? null : Keys(List(know, "_list"), "_key", _ => true),
+            CompletedMissions = quest is null ? null : Keys(List(quest, "_missionStateList"), "_key", Done),
+            KnownMissions = quest is null ? null : Keys(List(quest, "_missionStateList"), "_key", _ => true),
+            CompletedQuests = quest is null ? null : Keys(List(quest, "_questStateList"), "_questKey", Done),
+            CompletedStages = quest is null ? null : Keys(List(quest, "_stageStateData"), "_key", Done),
+            Sublevels = sublevels,
+            Hired = hired,
+            Nodes = nodes,
+            Running = running,
+            OperationKeyOf = _catalogue is null ? null : _catalogue.OperationKeyOf,
+            NoManagementRents = faction is null ? null
+                : List(faction, "_factionElementSaveDataList").FirstOrDefault(f => Long(f, "_ownerFactionKey") == PlayerFaction) is { } pf
+                  ? !List(pf, "_factionManagementSaveDataList").Any() && !(pf.GetValueOrDefault("_factionManagementSaveDataList") is List<object?> { Count: > 0 })
+                  : null,
+        };
+    }
+
+    /// <summary>Highest N with game-play variable BaseCamp_LvN set (Lv0..Lv5 seen). Owner's save: 4, matching the game.</summary>
+    int? CampLevel(GameFacts facts)
+    {
+        if (_catalogue?.Conditions is not ConditionBook book || facts.GamePlayVariables is null) return null;
+        int? level = null;
+        for (int n = 0; n <= 9; n++)
+            if (book.KeyOf("gameplayvariable", $"BaseCamp_Lv{n}") is uint k && facts.GamePlayVariables.Contains(k)) level = n;
+        return level;
+    }
+
+    /// <summary>
+    /// Missions that can be started (docs/re-notes/available-missions.md): not running; node not blockaded
+    /// (`_factionState` 2, no `_isBlock`); node discovered (its Knowledge_Node_ knowledge is in the save); and every
+    /// start condition in the mission's record holds. A condition the save cannot settle leaves the mission listed
+    /// with <see cref="Mission.Unconfirmed"/> filled in; anything assumed is in <see cref="Mission.Assumptions"/>.
+    /// A node held by a faction hostile to the Greymanes is also marked unconfirmed.
     /// </summary>
     List<Mission> Available(Dictionary<string, object?>? faction, List<Mission> running, Dictionary<string, long> sublevels,
-                            bool haveSublevels, List<string> unknowns)
+                            bool haveSublevels, GameFacts facts, List<string> unknowns)
     {
         var result = new List<Mission>();
         if (_catalogue is null || faction is null) return result;
+        if (_catalogue.Conditions is not ConditionBook book)
+        {
+            unknowns.Add("availableMissions not computed: start conditions not loaded (" + _catalogue.ConditionsProblem + ")");
+            return result;
+        }
+        var eval = new ConditionEvaluator(book, facts);
+        var hostile = new HashSet<long>();
+        foreach (var f in List(faction, "_factionElementSaveDataList"))
+            if (Long(f, "_ownerFactionKey") == PlayerFaction)
+                foreach (var r in List(f, "_factionRelationDataList"))
+                    if ((Long(r, "_relationTypeRaw") ?? 0) == 0 && Long(r, "_targetFactionKey") is long t) hostile.Add(t);
+
         var runningOps = running.Select(m => m.OperationKey).ToHashSet();
         var ignored = new List<string>();
+        int unconfirmed = 0;
         foreach (var node in List(faction, "_factionNodeElementSaveDataList"))
         {
             if (Long(node, "_ownerFactionKey") is not long nodeKey || Long(node, "_factionState") != 2
                 || node.ContainsKey("_isBlock")) continue;
+            var nodeNotes = new List<string>();
+            if (_catalogue.NodeKnowledgeKey((uint)nodeKey) is uint nk)
+            {
+                if (facts.Knowledge is null) nodeNotes.Add("node discovery unknown (knowledge not read)");
+                else if (!facts.Knowledge.Contains(nk)) continue;   // not discovered
+            }
+            else nodeNotes.Add("node discovery unknown (no knowledge key in the node record)");
+            long? holder = Long(node, "_conquerorFactionKey") ?? Long(node, "_blockadingFactionKey");
+            if (holder is long h && hostile.Contains(h)) nodeNotes.Add($"node held by faction {h}, hostile to the Greymanes");
+
             foreach (var op in _catalogue.OperationsAt((uint)nodeKey))
             {
                 if (runningOps.Contains(op.Key)) continue;
+                var notes = new List<string>(nodeNotes);
+                var assumptions = new List<string>();
+                var keys = _catalogue.OperationConditionKeys(op.Key, book.Has);
+                bool blocked = false;
+                if (keys is null) notes.Add("start conditions not found in the mission record");
+                else
+                    foreach (uint k in keys)
+                    {
+                        var v = eval.Evaluate(book.Expression(k)!);
+                        if (v.Value == Tri.False) { blocked = true; break; }
+                        notes.AddRange(v.Unknown);
+                        assumptions.AddRange(v.Assumptions);
+                    }
+                if (blocked) continue;
                 var m = new Mission { Active = false, NodeKey = nodeKey, OperationKey = op.Key };
                 Describe(m, ignored);
                 m.Bonus = BonusOf(m, new List<long?>(), new Dictionary<long, long>(), haveSublevels ? sublevels : null, ignored);
                 if (m.Bonus is not null) m.Bonus.Comrades = null;   // nobody assigned yet
+                m.Assumptions = assumptions.Count == 0 ? null : assumptions.Distinct().ToList();
+                m.Unconfirmed = notes.Count == 0 ? null : notes.Distinct().ToList();
+                if (m.Unconfirmed is not null) unconfirmed++;
                 result.Add(m);
             }
         }
-        unknowns.Add($"availableMissions ({result.Count}) is a candidate list: node not blockaded, mission not running; not yet checked against the game");
+        if (unconfirmed > 0)
+            unknowns.Add($"availableMissions: {unconfirmed} of {result.Count} depend on conditions the save does not settle (see each mission's unconfirmed)");
         return result;
     }
+
+    /// <summary>The player's faction (Greymanes): its faction element has _leaderCharacterKey 1.</summary>
+    const long PlayerFaction = 1000000;
 
     /// <summary>Church sub-level per region (sublevelinfo names). Regions not listed have no known church.</summary>
     static readonly Dictionary<string, string> Religion = new()

@@ -49,10 +49,16 @@ public sealed class Catalogue
                archive.Tables("skill"), archive.Tables("sublevelinfo"))
     {
         NamesProblem = problem;
+        Conditions = ConditionBook.TryLoad(archive, out string? conditionsProblem);
+        ConditionsProblem = conditionsProblem;
     }
 
     /// <summary>Why English names could not be loaded, or null.</summary>
     public string? NamesProblem { get; }
+
+    /// <summary>Mission start conditions (conditioninfo and the name tables), or null with <see cref="ConditionsProblem"/>.</summary>
+    public ConditionBook? Conditions { get; init; }
+    public string? ConditionsProblem { get; init; }
 
     /// <summary>From tables already in memory (base first, DLC after). Used by tests with hand-built tables.</summary>
     public Catalogue(List<Table> factionNode, List<Table> drops, List<Table> items, List<Table> characters,
@@ -79,6 +85,75 @@ public sealed class Catalogue
     /// <summary>Dispatch missions defined at a node (records with a members marker; combat-style ones excluded).</summary>
     public IEnumerable<OperationInfo> OperationsAt(uint nodeKey) =>
         _operations.Values.Where(o => o.NodeKey == nodeKey && o.Category is not null).OrderBy(o => o.Key);
+
+    /// <summary>Operation key by internal name (Node_..._Work_...), or null.</summary>
+    public uint? OperationKeyOf(string internalName) =>
+        _operations.Values.FirstOrDefault(o => o.InternalName == internalName && o.Category is not null)?.Key;
+
+    /// <summary>
+    /// The node's discovery knowledge (knowledgeinfo Knowledge_Node_...): u32 15 bytes after the node key, which
+    /// follows the length-prefixed node name. Checked on Glenbright Farm and Southern Quarry, 2026-11-12.
+    /// </summary>
+    public uint? NodeKnowledgeKey(uint nodeKey)
+    {
+        for (int t = _nodes.Count - 1; t >= 0; t--)
+        {
+            if (!_nodes[t].Records.TryGetValue(nodeKey, out var r)) continue;
+            return NodeKnowledgeKey(_nodes[t].Body.AsSpan(r.Start, r.End - r.Start), nodeKey);
+        }
+        return null;
+    }
+
+    public static uint? NodeKnowledgeKey(ReadOnlySpan<byte> rec, uint nodeKey)
+    {
+        if (rec.Length < 4) return null;
+        int nameLen = (int)U32(rec, 0);
+        int at = 4 + nameLen;
+        if (nameLen is < 1 or > 200 || at + 19 > rec.Length || U32(rec, at) != nodeKey) return null;
+        uint k = U32(rec, at + 15);
+        return k == 0 ? null : k;
+    }
+
+    /// <summary>
+    /// The operation's start conditions: between its key and its internal name, a u32 count n then n entries of
+    /// 13 bytes, each starting with a conditioninfo key. The first run whose keys are all conditions is taken.
+    /// Null when no such run is found.
+    /// </summary>
+    public IReadOnlyList<uint>? OperationConditionKeys(uint opKey, Func<uint, bool> isCondition)
+    {
+        if (Operation(opKey) is not { InternalName: string name } op) return null;
+        for (int t = _nodes.Count - 1; t >= 0; t--)
+        {
+            if (!_nodes[t].Records.TryGetValue(op.NodeKey, out var r)) continue;
+            return ConditionKeys(_nodes[t].Body.AsSpan(r.Start, r.End - r.Start), opKey, name, isCondition);
+        }
+        return null;
+    }
+
+    public static IReadOnlyList<uint>? ConditionKeys(ReadOnlySpan<byte> rec, uint opKey, string internalName, Func<uint, bool> isCondition)
+    {
+        Span<byte> kb = stackalloc byte[4];
+        BinaryPrimitives.WriteUInt32LittleEndian(kb, opKey);
+        int at = rec.IndexOf(kb);
+        if (at < 0) return null;
+        int end = rec.Slice(at).IndexOf(Encoding.ASCII.GetBytes(internalName));
+        if (end < 0) return null;
+        end += at;
+        for (int i = at + 4; i + 4 < end; i++)
+        {
+            int n = (int)U32(rec, i);
+            if (n is < 1 or > 12 || i + 4 + 13 * n > end) continue;
+            var keys = new List<uint>(n);
+            for (int j = 0; j < n; j++)
+            {
+                uint k = U32(rec, i + 4 + 13 * j);
+                if (!isCondition(k)) { keys = null; break; }
+                keys.Add(k);
+            }
+            if (keys is not null) return keys;
+        }
+        return null;
+    }
 
     public static string? RegionOf(string? internalName)
     {

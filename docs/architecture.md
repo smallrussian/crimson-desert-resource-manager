@@ -63,10 +63,15 @@ added; see below).
   `Localisation.cs`). Missions get `type` (e.g. "Hasty Mining"), `location` ("Southern Quarry") and `name`
   (location, else type); the internal name moved to `internalName`. Evidence: `docs/re-notes/localisation.md`.
 - **Bonus inputs.** Each mission carries `bonus`: conversion percent, skill type and the assigned comrades'
-  skill slots. The total needs the camp level, which is not located, so it is computed in the calc core
-  (`core/CampLedger.Core/Bonus.cs`) from a user setting. Evidence: `docs/re-notes/comrade-bonuses.md`.
-- **Available missions.** `availableMissions` lists candidates (node not blockaded, mission not running).
-  Not yet checked against the game. Evidence: `docs/re-notes/available-missions.md`.
+  skill slots. The total is computed in the calc core (`core/CampLedger.Core/Bonus.cs`) with the camp
+  level, which the snapshot now carries as `campLevel` (read from the save; see below). Evidence:
+  `docs/re-notes/comrade-bonuses.md`.
+- **Available missions.** `availableMissions` applies the game's own start rules: node discovered (its
+  `Knowledge_Node_` knowledge learned), node not blockaded, and every condition in the mission's record
+  (`conditioninfo` expressions such as `CheckGamePlayVariable(BaseCamp_Lv3)`, `CompleteQuest(...)`) true.
+  `ConditionEvaluator` (`Conditions.cs`) uses three-valued logic: anything the save cannot settle stays on
+  the list with `unconfirmed` reasons; assumptions (wanted level) are listed in `assumptions`. Evidence:
+  `docs/re-notes/available-missions.md`.
 - Snapshot and game-data load take about 0.6 s together.
 
 ## Tests

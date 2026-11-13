@@ -25,7 +25,7 @@ seen divides exactly).
 | Skill status and percent | `skill` table, `Skill_<Type>_I/II/III` | See below |
 | Assigned comrades | Save node `_operatorMercenaryList[]._mercenaryNo` → `MercenaryClanSaveData._mercenaryDataList[]` (`_mercenaryNo`, `_characterKey`) | |
 | Comrade skill slots | `characterinfo` record of the character (DLC copy wins) | See below |
-| Camp level | **Not located.** User setting (owner: 4) | Slots unlocked = camp level |
+| Camp level | Save game-play variables `BaseCamp_Lv0`..`Lv5`: highest set (owner: 4, matches). See `available-missions.md` | Slots unlocked = camp level |
 | Comrade count and minimum | Save worker count; record's members min | As before |
 
 ### Skill records
@@ -70,6 +70,5 @@ Quarry (Mining; Duncan 10+30 → 40).
 
 ## Still open
 
-- Camp level in the save or memory.
 - Whether the bonus also applies to the personal-storage item rewards (the reader applies nothing to them).
 - Whether Howling Hill Camp builds (no skill type, Pailune) take any bonus.
