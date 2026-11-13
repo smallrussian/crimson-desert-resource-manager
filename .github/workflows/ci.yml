@@ -1,0 +1,23 @@
+# Builds and tests the reader and calc core on every push and pull request.
+# The suites use hand-written fixtures only and never need the game (AGENTS.md).
+# Game-dependent checks (save values, memory layouts, launcher) stay manual: docs/patch-update.md.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest   # the reader targets net8.0-windows
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Core tests
+        run: dotnet test core/CampLedger.Core.Tests -c Release
+      - name: Reader tests
+        run: dotnet test reader/CampLedger.Reader.Tests -c Release
+      - name: Build probe tool
+        run: dotnet build tools/probe -c Release
