@@ -26,13 +26,15 @@ public static class DashboardView
         string Name, string? Type, string? Location, string? Region, string? Role, string? Category,
         int Workers, int? WorkersMin, int? WorkersMax, double? DurationHours, double? ElapsedHours, double? RemainingHours,
         double? Progress, bool Recurring, Reserves? Cost, Reserves? BaseReward, Reserves? Reward, BonusView? Bonus,
-        List<string> Comrades, Reserves? Net, Dictionary<string, double>? NetPerHour, string? PersonalStorageReward, long? OperationKey = null);
+        List<string> Comrades, Reserves? Net, Dictionary<string, double>? NetPerHour, string? PersonalStorageReward, long? OperationKey = null,
+        string? ItemCost = null);
 
     public sealed record AvailableView(
         string Name, string? Type, string? Location, string? Region, string? Role, string? Category,
         int? WorkersMin, int? WorkersMax, double? DurationHours, Reserves? Cost, Reserves? BaseReward,
         int? Conversion, string? SkillType, Reserves? MinReward, Dictionary<string, double>? MinNetPerHour,
-        string? PersonalStorageReward, List<string>? Unconfirmed, List<string>? Assumptions, long? OperationKey);
+        string? PersonalStorageReward, List<string>? Unconfirmed, List<string>? Assumptions, long? OperationKey,
+        string? ItemCost = null);
 
     public sealed record SlotView(string Type, int Tier, int Percent, bool Unlocked);
     public sealed record ComradeView(string Name, long? Key, List<SlotView?>? Slots, string? MissionName, long? OperationKey, bool Busy);
@@ -158,7 +160,7 @@ public static class DashboardView
             m.Repeat == true, m.Cost, m.Reward, Res(reward),
             b is null ? null : new BonusView(b.Conversion, b.Skill, b.Comrade, b.Total, m.Bonus?.SkillType),
             m.Bonus?.Comrades?.Select(c => c.Name ?? "?").ToList() ?? new List<string>(),
-            Res(Calc.Net(line)), PerHour(Calc.NetPerHour(line)), m.PersonalStorageReward, m.OperationKey);
+            Res(Calc.Net(line)), PerHour(Calc.NetPerHour(line)), m.PersonalStorageReward, m.OperationKey, m.ItemCost);
     }
 
     /// <summary>Slots up to the camp level are unlocked (docs/re-notes/comrade-bonuses.md).</summary>
@@ -252,7 +254,7 @@ public static class DashboardView
         return new AvailableView(
             m.Name ?? m.InternalName ?? "unknown", m.Type, m.Location, m.Region, m.Role, m.Category,
             m.WorkersMin, m.WorkersMax, m.DurationHours, m.Cost, m.Reward, conv, m.Bonus?.SkillType, Res(minReward),
-            PerHour(Calc.NetPerHour(line)), m.PersonalStorageReward, m.Unconfirmed, m.Assumptions, m.OperationKey);
+            PerHour(Calc.NetPerHour(line)), m.PersonalStorageReward, m.Unconfirmed, m.Assumptions, m.OperationKey, m.ItemCost);
     }
 
     static List<HistoryPoint> Downsample(IReadOnlyList<HistoryPoint> h, int max)

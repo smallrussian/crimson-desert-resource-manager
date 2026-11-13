@@ -129,6 +129,12 @@
     const parts = KEYS.filter((k) => obj[k]).map((k) => `<span class="amt">${icon(k, 14)}${sign}${nf.format(obj[k])}</span>`);
     return parts.length ? `<span class="amts">${parts.join("")}</span>` : '<span class="zero">—</span>';
   }
+  // A build (game role "Building") pays out no reserves: say so instead of a bare dash.
+  const isBuild = (m) => m.role === "Building";
+  function rewardCell(m, obj) {
+    if (obj && isBuild(m) && KEYS.every((k) => !obj[k])) return '<span class="zero" title="Builds pay out no reserves">none (build)</span>';
+    return amounts(obj);
+  }
   function netList(perHour) {
     if (!perHour) return '<span class="unk">unknown</span>';
     const parts = KEYS.filter((k) => Math.abs(perHour[k]) > 0.0001).map((k) => `<span class="amt">${icon(k, 14)}${rate(perHour[k])}</span>`);
@@ -150,8 +156,8 @@
         <div class="bar-meta"><span>${m.elapsedHours == null ? "?" : Math.round(m.elapsedHours * 10) / 10} / ${m.durationHours ?? "?"} h in game</span>
         <span>${m.remainingHours == null ? "" : hours(m.remainingHours) + " left" + realEta(m.remainingHours)}</span></div></div>
       <div class="flow">
-        <span class="lbl">Cost</span>${amounts(m.cost)}
-        <span class="lbl">Reward</span>${amounts(m.reward)}
+        <span class="lbl">Cost</span>${amounts(m.cost)}${m.itemCost ? `<span class="lbl">Items</span><span class="extra">${esc(m.itemCost)}</span>` : ""}
+        <span class="lbl">Reward</span>${rewardCell(m, m.reward)}
         <span class="lbl">Net</span>${netList(m.netPerHour)}
       </div>
       ${bonus}
@@ -219,6 +225,7 @@
       const workers = m.workersMin === m.workersMax ? `${m.workersMin ?? "?"}` : `${m.workersMin}–${m.workersMax}`;
       const details = open ? `<div class="details">
           ${m.conversion != null ? `<div><span class="k">Bonus</span>+${m.conversion}% conversion included; ${esc(m.skillType ?? "skill")} skills and extra comrades add more.</div>` : ""}
+          ${m.itemCost ? `<div><span class="k">Also costs</span>${esc(m.itemCost)}</div>` : ""}
           ${m.personalStorageReward ? `<div><span class="k">Storage</span>${esc(m.personalStorageReward)}</div>` : ""}
           ${m.category ? `<div><span class="k">Kind</span>${esc(m.category)}</div>` : ""}
           ${flagged ? `<div class="warn"><span class="k">Unconfirmed</span>${m.unconfirmed.map(esc).join("; ")}</div>` : ""}
@@ -229,7 +236,7 @@
         <span class="num c-w">${workers}</span>
         <span class="num c-d">${m.durationHours ?? "?"}</span>
         <span class="num c-cost">${amounts(m.cost)}</span>
-        <span class="num c-rew">${amounts(m.minReward)}</span>
+        <span class="num c-rew">${rewardCell(m, m.minReward)}</span>
         <span class="num c-net">${netList(m.minNetPerHour)}</span>
         <span class="c-add"><button class="btn small${inPlan(id) ? " on" : ""}" data-plan-add="${esc(id)}">${inPlan(id) ? "✓ In plan" : "+ Plan"}</button></span>
         <span class="c-flag">${flagged ? '<span class="flag" title="Some start conditions could not be confirmed">⚠</span>' : ""}</span>

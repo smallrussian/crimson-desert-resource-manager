@@ -13,26 +13,56 @@ public sealed class DisplayNames
 {
     readonly List<StringTable> _faction, _region, _character;
     readonly Dictionary<string, string> _regionKeyByName = new();
+    readonly Dictionary<string, uint> _regionByName = new();
+    readonly Dictionary<uint, string> _regionName = new();
+    readonly Dictionary<uint, uint> _regionParent = new();
 
     public DisplayNames(List<StringTable> faction, List<StringTable> region, List<Table> regionInfo,
-                        List<StringTable>? character = null)
+                        List<StringTable>? character = null, int? regionParentAfterName = null)
     {
         _character = character ?? new();
         _faction = faction;
         _region = region;
         foreach (var t in regionInfo)                              // base first, DLC later and wins
             foreach (var (key, (start, end)) in t.Records)
-                if (t.Name(key) is string name && RegionStringKey(t.Body.AsSpan(start, end - start), key) is string sk)
-                    _regionKeyByName[name] = sk;
+            {
+                if (t.Name(key) is not string name) continue;
+                var rec = t.Body.AsSpan(start, end - start);
+                if (RegionStringKey(rec, key) is string sk) _regionKeyByName[name] = sk;
+                _regionByName[name] = key;
+                _regionName[key] = name;
+                if (regionParentAfterName is int after && rec.Length >= 4)
+                {
+                    long at = 4L + BinaryPrimitives.ReadUInt32LittleEndian(rec) + after;
+                    if (at + 2 <= rec.Length) _regionParent[key] = BinaryPrimitives.ReadUInt16LittleEndian(rec[(int)at..]);
+                }
+            }
     }
 
-    public static DisplayNames? TryLoad(Archive archive, out string? problem)
+    /// <summary>
+    /// The territory record (Region_&lt;People&gt;_Territory) a faction node belongs to, by following regioninfo parent
+    /// links from "Region_" + node name (or the node name). Null if the node or a link is missing, or no layout.
+    /// Evidence: docs/re-notes/mission-regions.md.
+    /// </summary>
+    public string? Territory(string nodeName)
+    {
+        if (!_regionByName.TryGetValue("Region_" + nodeName, out uint k) && !_regionByName.TryGetValue(nodeName, out k)) return null;
+        for (int depth = 0; depth < 12; depth++)
+        {
+            if (_regionName.TryGetValue(k, out var n) && n.EndsWith("_Territory", StringComparison.Ordinal)) return n;
+            if (!_regionParent.TryGetValue(k, out uint parent) || parent == k || !_regionName.ContainsKey(parent)) return null;
+            k = parent;
+        }
+        return null;
+    }
+
+    public static DisplayNames? TryLoad(Archive archive, out string? problem, int? regionParentAfterName = null)
     {
         try
         {
             problem = null;
             return new DisplayNames(archive.StringTables("faction"), archive.StringTables("region"),
-                                    archive.Tables("regioninfo"), archive.StringTables("character"));
+                                    archive.Tables("regioninfo"), archive.StringTables("character"), regionParentAfterName);
         }
         catch (Exception e) when (e is InvalidDataException or IOException or ArgumentException or IndexOutOfRangeException)
         {

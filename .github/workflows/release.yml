@@ -1,0 +1,98 @@
+# Releases on every merge to main that carries a new version. The version is <Version> in
+# app/CampLedger.App/CampLedger.App.csproj; when tag v<version> already exists the run stops after the check,
+# so merges that do not bump it release nothing. Otherwise: tests, installer, then a *published* release tagged
+# v<version> at the merged commit. Installed apps see it within 6 hours (or at their next start). See docs/release.md.
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# One release run at a time; a later merge waits instead of racing for the same tag.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-2022
+    env:
+      ASI_LOADER_URL: https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/v10.0.2/Ultimate-ASI-Loader-NoPDB_x64.zip
+      ASI_LOADER_ZIP_SHA256: fe964adf4de7f467ff39c440a4059de02e37d0574a62944eef2f55a35edafa2f
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version from the app project
+        id: version
+        shell: pwsh
+        run: |
+          $v = ([xml](Get-Content app/CampLedger.App/CampLedger.App.csproj)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "app version '$v' is not X.Y.Z" }
+          "version=$v" >> $env:GITHUB_OUTPUT
+          git ls-remote --exit-code --tags origin "refs/tags/v$v" | Out-Null
+          if ($LASTEXITCODE -eq 0) {
+            "Version $v is already released (tag v$v exists); nothing to do." | Tee-Object -Append $env:GITHUB_STEP_SUMMARY
+            "release=false" >> $env:GITHUB_OUTPUT
+          } else {
+            "release=true" >> $env:GITHUB_OUTPUT
+          }
+          exit 0
+
+      - uses: actions/setup-dotnet@v4
+        if: steps.version.outputs.release == 'true'
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Tests
+        if: steps.version.outputs.release == 'true'
+        shell: pwsh
+        run: |
+          dotnet test core/CampLedger.Core.Tests -c Release
+          if ($LASTEXITCODE -ne 0) { throw "core tests failed" }
+          dotnet test reader/CampLedger.Reader.Tests -c Release
+          if ($LASTEXITCODE -ne 0) { throw "reader tests failed" }
+
+      # build.ps1 compiles the launcher ASI with zig.
+      - uses: mlugg/setup-zig@v2
+        if: steps.version.outputs.release == 'true'
+        with:
+          version: 0.17.1
+
+      # The ASI loader is not in the repo (no binaries); fetch the pinned upstream release and check both hashes.
+      - name: Ultimate ASI Loader
+        if: steps.version.outputs.release == 'true'
+        shell: pwsh
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'asi-loader.zip'
+          Invoke-WebRequest $env:ASI_LOADER_URL -OutFile $zip
+          $got = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($got -ne $env:ASI_LOADER_ZIP_SHA256) { throw "loader zip SHA-256 is $got" }
+          $x = Join-Path $env:RUNNER_TEMP 'asi-loader'
+          Expand-Archive $zip -DestinationPath $x
+          New-Item -ItemType Directory -Force launcher/build/install | Out-Null
+          Copy-Item (Join-Path $x 'dinput8.dll') launcher/build/install/winmm.dll   # build.ps1 checks the DLL's hash too
+
+      - name: Inno Setup
+        if: steps.version.outputs.release == 'true'
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+
+      - name: Build installer
+        if: steps.version.outputs.release == 'true'
+        shell: pwsh
+        run: ./installer/build.ps1 -Version ${{ steps.version.outputs.version }}
+
+      - name: Publish release
+        if: steps.version.outputs.release == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $v = '${{ steps.version.outputs.version }}'
+          gh release create "v$v" "installer/out/CampLedgerSetup-$v.exe" `
+            --target '${{ github.sha }}' --latest --generate-notes --title "Camp Ledger $v"

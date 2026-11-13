@@ -172,3 +172,73 @@ opts in to serving on the home network (not done: it listens on localhost only).
 - Missions, comrades, available missions, camp level: from the save, so they update when the game saves
   (autosave or manual). The watcher checks for a newer save every 5 s.
 - The page polls every 3 s (ETag; unchanged data costs a 304).
+
+## Desktop app (decided 2026-11-13)
+
+**Decision.** The owner chose a standalone, installable Windows app so the reader and dashboard work as one:
+`app/CampLedger.App` (`CampLedger.exe`), WinForms + Microsoft Edge WebView2 showing the existing dashboard page,
+with the reader (`Watcher`) and `DashboardServer` running in the same process. Installer: Inno Setup 6
+(`installer/`), per-user, no admin prompt. New dependency: `Microsoft.Web.WebView2` (Microsoft's control for
+showing the existing HTML dashboard in a native window; the runtime ships with Windows 11).
+
+**Not chosen.** A WPF/XAML rewrite of the dashboard (all UI written twice), Electron or Tauri (second language,
+bigger download), Velopack (would replace the Inno installer and its "start with the game" and uninstall steps;
+GitHub Releases now serves as the update feed instead, see below).
+
+**How it works.**
+- `CampLedger.exe` opens the window; `CampLedger.exe watch` (what the launcher ASI runs) starts in the tray.
+  One instance (mutex `CampLedger.App`); a second launch brings the window forward.
+- It records only if it holds `Local\CampLedgerReader.watch`; if the console reader already does, the window
+  just shows that reader's dashboard.
+- Lifetime: stays while the window is open or the game runs. Closing the window while recording sends it to the
+  tray; it then exits after the game closes. Task Manager / shutdown closes exit outright.
+- **Values when the game is not running.** Every snapshot stays in `%LOCALAPPDATA%\CampLedger\snapshots.jsonl`,
+  so the app shows the last known camp whenever it is opened. At start, if the newest save was written after the
+  last save snapshot in the log (game played without the reader), it reads that save once (from a copy) and
+  appends it (`Watcher.CatchUpFromSave`). The game version then comes from the install's `meta/0.paver`.
+  Dashboard settings and plans persist in the app's WebView2 profile (`%LOCALAPPDATA%\CampLedger\WebView2`);
+  they do not carry over from a browser.
+- Only `http://localhost:5240/` opens inside the window; other links go to the default browser. Dev tools and
+  the default context menu are off in Release builds.
+- **Start with the game** (installer task, unticked by default; also a tray menu toggle): `LauncherFiles` copies
+  `CampLedgerLauncher.asi`, writes `CampLedgerLauncher.ini` (path to `CampLedger.exe`) and adds `winmm.dll`
+  (Ultimate ASI Loader) to `<game>\bin64` only if no `winmm.dll` is there. An existing different `winmm.dll` is
+  never overwritten or deleted. What was placed is recorded in `%LOCALAPPDATA%\CampLedger\launcher.json`;
+  removal (tray toggle or uninstall) deletes the ASI and ini, and the loader only while its hash still matches.
+  Refused while the game is running. The launcher ASI itself is unchanged.
+- Uninstall keeps `%LOCALAPPDATA%\CampLedger` (snapshots, log, settings).
+
+**Build:** `powershell -ExecutionPolicy Bypass -File installer\build.ps1 [-Version x.y.z]` →
+`installer\out\CampLedgerSetup-<version>.exe` (about 48 MB; self-contained .NET 8, so users need no runtime).
+Inno Setup 6.7 reports "non-commercial use only"; a free Nexus release is non-commercial.
+
+**Checked 2026-11-13** (game 2.05.00 running, console reader recording): window renders the dashboard; single
+instance; launcher-style `watch` start stays in the tray; closing exits when this app is not the recorder;
+published app runs standalone. **Not yet checked:** the installer run end to end, the tray-on-close path while the
+app itself records, `CatchUpFromSave` against a real save, and the "start with the game" task on the real
+game folder.
+
+## In-app updates from GitHub Releases (decided 2026-11-13)
+
+**Decision.** The owner wants updates without reinstalling. The app checks this repository's latest published GitHub
+release. When it finds a newer one, it offers **Update and restart**: it downloads `CampLedgerSetup-X.Y.Z.exe`,
+checks its size and the SHA-256 GitHub reports for the asset, and runs the same Inno installer silently over the
+existing install. The installer waits for the old process to exit and relaunches the app, in the window or in the
+tray as it was. Releases are built and published by `.github/workflows/release.yml` when a version bump is merged
+into `main` (owner's choice, 2026-11-13: publish as soon as tests pass, no draft step). Procedure and acceptance rules: [release.md](release.md).
+
+**Why.** No new dependency and no hosting. One installer serves both first installs and updates, so the "start with
+the game" task, the uninstall cleanup and the per-user folder all keep working. Game patches need new
+`offsets/<version>/` files, which ship inside the app, so updating has to be easy.
+
+**Network use.** This is the app's only outbound request: one unauthenticated GET to `api.github.com` 20 s after
+start and every 6 h, plus the download when the user clicks update. No user or game data is sent. It can be turned off
+from the tray menu (**Check for updates automatically**).
+
+**Checked 2026-11-13** (game closed): 0.1.0 installed by its installer into a scratch folder, pointed at a local
+test feed (`CAMPLEDGER_UPDATE_FEED`) serving a 0.1.1 release. It found the update 20 s after start and showed the
+banner. **Update and restart** downloaded and verified the installer and the app exited. The silent install
+succeeded and 0.1.1 reopened in the window, about 7 s after the click. Download folder cleaned on the new start.
+**Not yet checked:** an update from a real published GitHub release (none exists yet), the GitHub Actions workflow
+(first run happens on the first tag), relaunch into the tray (`/RELAUNCH=watch`), and an update over an install with
+"start with the game" ticked.

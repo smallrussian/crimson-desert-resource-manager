@@ -119,6 +119,22 @@ public class DashboardTests
     }
 
     [Fact]
+    public void Available_build_with_no_reserve_reward_has_a_known_net_and_its_item_cost()
+    {
+        // Vellua Shipbuilding and the bridge builds: reward all zeros (not unknown), net is the reserve cost per hour.
+        var build = new Mission
+        {
+            Name = "Vellua", Type = "Shipbuilding", Role = "Building", WorkersMin = 7, WorkersMax = 7, DurationHours = 36,
+            Cost = R(food: 5000, funds: 100000, stone: 2400, timber: 2400), ItemCost = "QuartzOre x30; Malachite x20",
+            Reward = R(), Bonus = new MissionBonus { ConversionPercent = null },
+        };
+        var a = DashboardView.AvailableOf(build);
+        Assert.Equal((0L, 0L, 0L, 0L, 0L), (a.MinReward!.Food, a.MinReward.Funds, a.MinReward.Stone, a.MinReward.Timber, a.MinReward.Armaments));
+        Assert.Equal(-100000.0 / 36, a.MinNetPerHour!["funds"], 6);
+        Assert.Equal("QuartzOre x30; Malachite x20", a.ItemCost);
+    }
+
+    [Fact]
     public void Planner_adds_one_cycle_of_running_costs()
     {
         var state = new SnapshotLog.State();

@@ -78,7 +78,10 @@ public sealed class Mission
     /// <summary>Which reserve the mission mainly produces (game's operation group).</summary>
     public string? Role { get; set; }
     public double? DurationHours { get; set; }
+    /// <summary>Reserve cost per cycle. Items that are not reserves are in <see cref="ItemCost"/>.</summary>
     public Reserves? Cost { get; set; }
+    /// <summary>Non-reserve items the mission also costs, e.g. "QuartzOre x30; Malachite x20". Null when none.</summary>
+    public string? ItemCost { get; set; }
     /// <summary>Base reward per cycle, before conversion, skill and comrade bonuses.</summary>
     public Reserves? Reward { get; set; }
     /// <summary>Reward bonus inputs. The calc core turns these into a total with the user's camp level.</summary>

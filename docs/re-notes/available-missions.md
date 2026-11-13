@@ -66,7 +66,7 @@ Counts over all 309 operations: `Macro(OperationPlayable)` 309, `CheckFactionWan
 | `CompleteMission(X)` | `QuestSaveData._missionStateList[]`, `_state` 5 | names: `missioninfo` |
 | `CompleteQuest(X)` | `QuestSaveData._questStateList[]` (`_questKey`), `_state` 5 | names: `questinfo` |
 | `CompleteStage(X)` | `QuestSaveData._stageStateData[]`, `_state` 5 | names: `stageinfo` |
-| `CompleteSubMission(X, n)` | true if mission X is complete, false if the save has no entry for it, else **unknown** | sub-mission progress not decoded |
+| `CompleteSubMission(X, n)` | true if mission X is complete, false if the save has no entry for it, else mission `X_n` completed (`_state` 5) | see Sub-missions below |
 | `GetCurrentSubLevel(X)` | `SubLevelSaveData._list[]`; missing = 0 | names: `sublevelinfo` |
 | `IsHiredMercenary(X)`, `GetMercenaryHiredCount(X)` | `MercenaryClanSaveData._mercenaryDataList[]._characterKey` | names: `characterinfo` |
 | `GetFactionNodeState(X)==Normal/Block` | node `_factionState` 2 without `_isBlock` = Normal; 0 with `_isBlock` = Block | mapping inferred from the counts above |
@@ -101,6 +101,26 @@ Player faction 1000000 (`Faction_Graymane`), `_factionRelationDataList`:
 Factions not listed fall back to relation groups (`factionrelationgroup`, not decoded). A missing entry is not
 hostile: Hillside Manor (conqueror Felix, no entry) is a mission the owner runs.
 
+### Sub-missions (2026-11-13, game 2.05.00)
+
+Sub-mission *n* of mission X is its own `missioninfo` record named `X_n`, and the save keeps it as its own entry
+in `QuestSaveData._missionStateList`. Evidence:
+
+- `Mission_HellwoodSlaveCamp_BridgeConstruction_Start` (1000885) has a u32 count (4) 49 bytes after its key, then the keys 0xFFFFF81D,
+  ...1C, ...1B, ...1A. These are the records named `..._Start_0` to `..._Start_3` (4294965277 to 4294965274). Same
+  for `Mission_HalsiusHospital_BridgeConstruction_Start` (1000570: 0xFFFFF815.. = `..._Start_0`..`_3`).
+  Sub-missions can also have ordinary keys (`Mission_GreymaneCamp_BuildFarm_Expand_1` = 1000991).
+- Over every `X_n` record whose parent X exists (owner's save, slot 2): parent completed -> sub completed on 741,
+  state 4 on 8, never anything else; parent in progress -> sub in progress 1,565, not in the save 685, completed 43.
+  So a finished mission has finished its subs, and an unfinished one has some done and some not.
+- Indexing is from 0: the names start at `_0`, and conditions use index 0 (`CompleteSubMission(X, 0)`).
+
+On the owner's save both bridge quests are in progress (`_state` 2) and so is their `_0` (`_state` 2, same
+`_branchedTime`); `_1` to `_3` are not in the save. So `CompleteSubMission(..._BridgeConstruction_Start, 0)` is
+false and **neither bridge construction can be started yet**. They were the two "unconfirmed" missions (⚠ on
+the dashboard) and are no longer listed. Owner to confirm in game: the two bridge builds are not offered at
+Rocca's Hill Slave Camp or St. Halssius's House of Healing.
+
 ## Result on the owner's save (2026-11-12, game running)
 
 47 startable missions (6 running): 32 in Hernand, 6 in Demeniss, 9 with no region prefix (7 at Calphade, a
@@ -115,7 +135,6 @@ Rules tried before (superseded):
 
 ## Still open
 
-- Sub-mission progress (two bridge constructions).
 - Wanted level (live memory only).
 - Default relations from `factionrelationgroup`.
 - Gate skills (Building, Drawing, ...) that the game says "allow" missions: not a start condition in the

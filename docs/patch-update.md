@@ -84,6 +84,7 @@ What to look at, and what each failure looks like:
 | Data | Read by | Failure looks like | Where to look |
 |---|---|---|---|
 | reward | `Catalogue.DropSet`, `gamedata.json` `dropSet` | `unknowns`: "reward table N did not validate" | `cdprobe rec dropsetinfo <key> 0 200`, `cdprobe multidrop`; compare record size per item count (see below) |
+| mission region | `DisplayNames.Territory`, `gamedata.json` `regionInfo` | Calphade missions lose their region and conversion turns unknown | follow `Region_Node_Cal_CalphadeLoggingCamp` to `Region_Hernandian_Territory`; find the parent u16 key after the name (`docs/re-notes/mission-regions.md`) |
 | skill slots | `Catalogue.ParseSkillSlots`, `gamedata.json` `skillSlots` | comrades' `slots` all null | `cdprobe recbin characterinfo <key> out.bin` + `cdprobe campskills`; find the distance from each slot marker back to a camp skill key |
 | cost, members, category | `Catalogue.ParseOperation` (code) | missions vanish or costs differ | `cdprobe rec factionnode <node>`; `mission-static-data.md` |
 | duration | `Catalogue.Duration` (code, 90 bytes before key) | `durationHours` null | `cdprobe static <name>=<hours>`; `mission-static-data.md` |

@@ -46,7 +46,7 @@ public sealed class Catalogue
 
     public Catalogue(Archive archive, GameDataLayout layout)
         : this(archive.Tables("factionnode"), archive.Tables("dropsetinfo"), archive.Tables("iteminfo"),
-               archive.Tables("characterinfo"), layout, DisplayNames.TryLoad(archive, out string? problem),
+               archive.Tables("characterinfo"), layout, DisplayNames.TryLoad(archive, out string? problem, layout.RegionParentAfterName),
                archive.Tables("skill"), archive.Tables("sublevelinfo"))
     {
         NamesProblem = problem;
@@ -157,6 +157,23 @@ public sealed class Catalogue
         return null;
     }
 
+    /// <summary>The game's territories (regioninfo) and the region names the reader uses for them.</summary>
+    static readonly Dictionary<string, string> Territories = new()
+    {
+        ["Region_Hernandian_Territory"] = "Hernand", ["Region_Demenissian_Territory"] = "Demeniss",
+        ["Region_Delesyian_Territory"] = "Delesyia", ["Region_Pailunese_Territory"] = "Pailune",
+        ["Region_Tashkalpan_Territory"] = "Crimson Desert",
+    };
+
+    /// <summary>
+    /// Region of a mission node from the game's region hierarchy (e.g. Calphade nodes are in Hernandian territory).
+    /// Null when the hierarchy is not available for this version or does not cover the node.
+    /// </summary>
+    public string? NodeRegion(uint nodeKey) =>
+        _names is not null && Last(_nodes, nodeKey, (t, k) => t.Name(k)) is string node
+        && _names.Territory(node) is string territory ? Territories.GetValueOrDefault(territory) : null;
+
+    /// <summary>Fallback: region from the node's internal-name prefix (Her_, Dem_, Kwe_, ...).</summary>
     public static string? RegionOf(string? internalName)
     {
         if (internalName is null || !internalName.StartsWith("Node_")) return null;
@@ -269,7 +286,11 @@ public sealed class Catalogue
     /// <summary>
     /// Drop-set entries, or null if the record is missing or fails its self-checks. Offsets are per version
     /// (offsets/&lt;version&gt;/gamedata.json): 2.05.00 added one byte before the count and one before each entry's trailer.
+    /// Entries are read in order: one type of entry is longer (<see cref="LongDropEntry"/>), so positions are summed, and
+    /// each entry must pass its own self-check. Random tables can be long (51 entries in DropSet_Operation_Food_3_5).
     /// </summary>
+    const int MaxDropEntries = 256;
+
     public IReadOnlyList<DropItem>? DropSet(uint key)
     {
         var L = _layout.DropSet;
@@ -282,16 +303,19 @@ public sealed class Catalogue
             if (skip < 4 || skip + L.EntriesOffset > b.Length || U32(b, skip) != key) return null;
             b = b.Slice(skip);
             int n = (int)U32(b, L.CountOffset);
-            if (n is < 0 or > 32 || L.EntriesOffset + n * L.EntrySize > b.Length) return null;
+            if (n is < 0 or > MaxDropEntries || L.EntriesOffset + n * L.EntrySize > b.Length) return null;
             var items = new List<DropItem>(n);
+            int at = L.EntriesOffset;
             for (int i = 0; i < n; i++)
             {
-                var e = b.Slice(L.EntriesOffset + i * L.EntrySize, L.EntrySize);
+                if (at + L.EntrySize > b.Length) return null;
+                var e = b.Slice(at, L.EntrySize);
                 uint item = U32(e, L.ItemOffset);
                 if (e[L.MarkOffset] != 0xFF || e[L.MarkOffset + 1] != 0xFF || U32(e, L.TrailerItemOffset) != item) return null;
                 long min = (long)BinaryPrimitives.ReadUInt64LittleEndian(e.Slice(L.MinOffset));
                 long max = (long)BinaryPrimitives.ReadUInt64LittleEndian(e.Slice(L.MaxOffset));
                 items.Add(new DropItem(item, min, max, U32(e, L.RateOffset) / 1_000_000.0));
+                at += L.EntrySize + (L.LongEntry is { } le && e[le.TypeOffset] == le.Type ? le.ExtraBytes : 0);
             }
             return items;
         }

@@ -47,7 +47,8 @@ public static class ReaderHost
     {
         string? install = GameInstall.Find(game);
         if (install is null) return (null, "game install folder not found");
-        var layout = GameDataLayout.TryLoad(GameVersion.Detect(game), out string? layoutProblem);
+        // Not running (e.g. the app catching up from the last save): the install folder has the same version stamp.
+        var layout = GameDataLayout.TryLoad(GameVersion.Detect(game) ?? GameVersion.FromInstall(install), out string? layoutProblem);
         if (layout is null) return (null, layoutProblem);
         try
         {
@@ -86,6 +87,58 @@ public sealed class Watcher
 
     /// <summary>Raised on the watcher's thread after the game closes.</summary>
     public event Action? GameClosed;
+
+    /// <summary>
+    /// With the game closed: read the newest save once (from a copy, as always) and append it when it says something
+    /// the log does not: a save written after the last save snapshot (game played without the reader), or the same
+    /// save decoded differently (e.g. a reader update after a game patch now validates rewards the old build could
+    /// not). Only the process that holds <see cref="ReaderHost.WatchMutexName"/> may call this.
+    /// </summary>
+    public bool CatchUpFromSave(Snapshot? lastSave)
+    {
+        if (ReaderHost.GameRunning()) return false;
+        string? install = GameInstall.Find(null);
+        string? version = GameVersion.FromInstall(install);
+        var probe = new SaveSource(gameVersion: version);
+        var newest = probe.NewestSave();
+        if (newest is null) return false;
+        bool newer = NeedsCatchUp(newest.LastWriteTimeUtc, lastSave);
+
+        var (catalogue, problem) = ReaderHost.LoadCatalogue(null);
+        var save = new SaveSource(gameVersion: version, catalogue: catalogue, catalogueProblem: problem);
+        switch (save.ReadFile(newest.FullName))
+        {
+            case SourceResult.Ok ok when newer || !SameContent(lastSave!, ok.Snapshot):
+                ReaderHost.Log(newer
+                    ? $"caught up from a save written {newest.LastWriteTime:yyyy-MM-dd HH:mm} (game not running)"
+                    : "re-read the newest save: this reader decodes it differently from the last snapshot");
+                Write(ok.Snapshot);
+                return true;
+            case SourceResult.Ok:
+                return false;
+            case SourceResult.Unavailable u:
+                ReaderHost.Log("could not catch up from the newest save: " + u.Reason);
+                return false;
+        }
+        return false;
+    }
+
+    /// <summary>Same decoded content, ignoring the snapshot's own id and read time.</summary>
+    public static bool SameContent(Snapshot a, Snapshot b)
+    {
+        static string Body(Snapshot s)
+        {
+            var node = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(s, JsonLine))!.AsObject();
+            node.Remove("id");
+            node.Remove("capturedAt");
+            return node.ToJsonString();
+        }
+        return Body(a) == Body(b);
+    }
+
+    /// <summary>True when a save written at <paramref name="saveWrittenUtc"/> is newer than what the log holds.</summary>
+    public static bool NeedsCatchUp(DateTime saveWrittenUtc, Snapshot? lastSave) =>
+        lastSave is null || saveWrittenUtc > lastSave.CapturedAt.UtcDateTime;
 
     public int Run(bool stay, CancellationToken ct = default)
     {

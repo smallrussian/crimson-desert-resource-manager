@@ -98,3 +98,45 @@ public sealed class LauncherFilesTests : IDisposable
         Assert.Empty(Directory.GetFiles(_root));
     }
 }
+
+public sealed class CatchUpTests
+{
+    static Snapshot SaveAt(DateTimeOffset t) => new() { Source = "save", CapturedAt = t };
+
+    [Fact]
+    public void EmptyLogAlwaysCatchesUp() => Assert.True(Watcher.NeedsCatchUp(DateTime.UtcNow, null));
+
+    [Fact]
+    public void SaveWrittenAfterLastReadCatchesUp()
+    {
+        var read = new DateTimeOffset(2026, 11, 13, 20, 0, 0, TimeSpan.Zero);
+        Assert.True(Watcher.NeedsCatchUp(read.UtcDateTime.AddMinutes(10), SaveAt(read)));
+    }
+
+    [Fact]
+    public void SaveAlreadyReadDoesNot()
+    {
+        var read = new DateTimeOffset(2026, 11, 13, 20, 0, 0, TimeSpan.FromHours(-6));
+        Assert.False(Watcher.NeedsCatchUp(read.UtcDateTime.AddSeconds(-2), SaveAt(read)));
+    }
+}
+
+public sealed class SameContentTests
+{
+    [Fact]
+    public void IdAndReadTimeDoNotCount()
+    {
+        var a = new Snapshot { Source = "save", GameVersion = "2.05.00" };
+        var b = new Snapshot { Source = "save", GameVersion = "2.05.00", CapturedAt = a.CapturedAt.AddMinutes(5) };
+        Assert.True(Watcher.SameContent(a, b));
+    }
+
+    [Fact]
+    public void DifferentDecodingCounts()
+    {
+        // e.g. an older build that could not validate rewards vs the current one.
+        var old = new Snapshot { Source = "save", Unknowns = new List<string> { "reward table 1015059 did not validate" } };
+        var now = new Snapshot { Source = "save", Unknowns = new List<string>() };
+        Assert.False(Watcher.SameContent(old, now));
+    }
+}

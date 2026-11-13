@@ -27,7 +27,8 @@ public class ReaderTests
     static readonly GameDataLayout V20408 = new("2.04.08",
         new DropSetLayout(0x11, 0x15, 0x40, 0x1, 0x1A, 0x2A, 0x32, 0x3A, 0x3C), new SkillSlotLayout(696, 1400, 1600));
     static readonly GameDataLayout V20500 = new("2.05.00",
-        new DropSetLayout(0x12, 0x16, 0x41, 0x1, 0x1A, 0x2A, 0x32, 0x3A, 0x3D), new SkillSlotLayout(768, 1480, 1680));
+        new DropSetLayout(0x12, 0x16, 0x41, 0x1, 0x1A, 0x2A, 0x32, 0x3A, 0x3D, new LongDropEntry(0x9, 0xD, 1)),
+        new SkillSlotLayout(768, 1480, 1680));
 
     static Table TableOf(params (uint Key, byte[] Record)[] records)
     {
@@ -105,12 +106,15 @@ public class ReaderTests
     }
 
     // v205: the 2.05.00 layout, one extra byte before the count and one before each entry's trailing item.
-    static byte[] DropEntry(uint item, ulong amount, uint rate = 1_000_000, bool corrupt = false, bool v205 = false)
+    static byte[] DropEntry(uint item, ulong amount, uint rate = 1_000_000, bool corrupt = false, bool v205 = false,
+                            byte type = 0, ulong? max = null)
     {
-        var e = new Bytes().U8(1).U32(item).Zero(0x1A - 5).U32(rate).Zero(0x2A - 0x1E)
-            .U64(amount).U64(amount).U8(0xFF).U8(0xFF);
+        var e = new Bytes().U8(1).U32(item).Zero(4).U8(type).Zero(0x1A - 10).U32(rate).Zero(0x2A - 0x1E)
+            .U64(amount).U64(max ?? amount).U8(0xFF).U8(0xFF);
         if (v205) e.U8(0);
-        return e.U32(corrupt ? item + 1 : item).Done();
+        e.U32(corrupt ? item + 1 : item);
+        if (v205 && type == 0x0D) e.U8(1);                                // type 0x0D entries are one byte longer
+        return e.Done();
     }
 
     static byte[] DropRecord(uint key, bool v205, params byte[][] entries)
@@ -205,6 +209,33 @@ public class ReaderTests
         Assert.Equal(new DropItem(14, 1400, 1400, 1.0), items![0]);
         Assert.Equal(0.15, items[2].Chance, 6);
         Assert.Null(CatalogueFixture(v205: true, corruptDrop: true).DropSet(1015091));
+    }
+
+    [Fact]
+    public void Drop_set_with_a_longer_entry_reads_the_entries_after_it()
+    {
+        // Rocca's Hill Slave Camp Bridge Construction (1015062, 2.05.00): a 0x0D entry (item 1000017, x0) with one extra
+        // byte, then contribution 601 x700. Before 2026-11-13 the second entry failed its check and the reward read unknown.
+        var drops = TableOf((1015062, DropRecord(1015062, true,
+            DropEntry(1000017, 0, v205: true, type: 0x0D), DropEntry(601, 700, v205: true, type: 0x06))));
+        var c = new Catalogue(new() { TableOf() }, new() { drops }, new() { TableOf() }, new() { TableOf() }, V20500);
+        Assert.Equal(new[] { new DropItem(1000017, 0, 0, 1.0), new DropItem(601, 700, 700, 1.0) }, c.DropSet(1015062));
+
+        // A layout that does not know about long entries fails closed instead of misreading.
+        var unknownLong = V20500 with { DropSet = V20500.DropSet with { LongEntry = null } };
+        Assert.Null(new Catalogue(new() { TableOf() }, new() { drops }, new() { TableOf() }, new() { TableOf() }, unknownLong).DropSet(1015062));
+    }
+
+    [Fact]
+    public void Drop_set_with_more_than_32_entries_is_read()
+    {
+        // DropSet_Operation_Food_3_5 (169991, Lift Repair Support) has 51 entries of 2-3 food items at 1% each.
+        var entries = Enumerable.Range(0, 51).Select(i => DropEntry(1002000u + (uint)i, 2, rate: 10_000, v205: true, max: 3)).ToArray();
+        var drops = TableOf((169991, DropRecord(169991, true, entries)));
+        var items = new Catalogue(new() { TableOf() }, new() { drops }, new() { TableOf() }, new() { TableOf() }, V20500).DropSet(169991);
+        Assert.NotNull(items);
+        Assert.Equal(51, items!.Count);
+        Assert.Equal(new DropItem(1002050, 2, 3, 0.01), items[50]);
     }
 
     [Fact]
@@ -424,7 +455,8 @@ public class ReaderTests
         {
             ["gameplayvariable"] = new() { Named((1000005, "BaseCamp_Lv1"), (1000007, "BaseCamp_Lv3"), (1000009, "BaseCamp_Lv5")) },
             ["knowledge"] = new() { Named((1000350, "Knowledge_Node_Her_GlenbrightFarm")) },
-            ["mission"] = new() { Named((1000001, "Mission_Done"), (1000002, "Mission_Started"), (1000003, "Mission_Never")) },
+            ["mission"] = new() { Named((1000001, "Mission_Done"), (1000002, "Mission_Started"), (1000003, "Mission_Never"),
+                (4294965277, "Mission_Started_0"), (4294965276, "Mission_Started_1"), (4294965275, "Mission_Started_2")) },
             ["quest"] = new() { Named((10001, "Quest_Intro")) },
             ["stage"] = new() { Named((1000614, "Intro_Tutorial_I")) },
             ["character"] = new() { Named((1000068, "NHM_Unique_Stone_Flint")) },
@@ -435,8 +467,8 @@ public class ReaderTests
     {
         GamePlayVariables = new() { 1000005, 1000007 },
         Knowledge = new() { 1000350 },
-        CompletedMissions = new() { 1000001 },
-        KnownMissions = new() { 1000001, 1000002 },
+        CompletedMissions = new() { 1000001, 4294965277 },
+        KnownMissions = new() { 1000001, 1000002, 4294965277, 4294965276 },
         CompletedQuests = new() { 10001 },
         CompletedStages = new(),
         Sublevels = new() { ["Contribution_Graymane"] = 12 },
@@ -473,7 +505,10 @@ public class ReaderTests
     [InlineData("GetFactionNodeState(Node_Her_GlenbrightFarm)==Normal", Tri.True)]
     [InlineData("CompleteSubMission(Mission_Done, 1)", Tri.True)]
     [InlineData("CompleteSubMission(Mission_Never, 0)", Tri.False)]
-    [InlineData("CompleteSubMission(Mission_Started, 0)", Tri.Unknown)]
+    [InlineData("CompleteSubMission(Mission_Started, 0)", Tri.True)]      // Mission_Started_0 completed
+    [InlineData("CompleteSubMission(Mission_Started, 1)", Tri.False)]     // Mission_Started_1 in progress
+    [InlineData("CompleteSubMission(Mission_Started, 2)", Tri.False)]     // Mission_Started_2 not reached
+    [InlineData("CompleteSubMission(Mission_Started, 3)", Tri.Unknown)]   // no Mission_Started_3 in game data
     [InlineData("!CheckFactionManagementRent(Faction_Graymane, Node_X, management_x)", Tri.True)]
     [InlineData("CheckGlobalGameEvent(Graymane_Party_Hernandian)", Tri.Unknown)]
     [InlineData("CheckGamePlayVariable(No_Such_Variable)", Tri.Unknown)]

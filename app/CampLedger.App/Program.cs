@@ -35,6 +35,7 @@ static class Program
 
         bool background = args.Contains("watch") || args.Contains("--background");
         using var instance = new Mutex(initiallyOwned: true, InstanceMutex, out bool first);
+        _instance = first ? instance : null;
         if (!first)
         {
             // Already running: bring it forward, unless this is the launcher starting us again.
@@ -49,6 +50,16 @@ static class Program
         using var app = new TrayApp(startHidden: background);
         Application.Run(app);
         return 0;
+    }
+
+    static Mutex? _instance;
+
+    /// <summary>Gives up the single-instance mutex early (UI thread only), so an update's installer does not see the app as running.</summary>
+    internal static void ReleaseInstance()
+    {
+        if (_instance is null) return;
+        try { _instance.ReleaseMutex(); } catch (ApplicationException) { }
+        _instance = null;
     }
 
     public static Icon AppIcon { get; } = LoadIcon();

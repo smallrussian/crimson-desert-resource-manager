@@ -68,7 +68,7 @@ public static class Program
     {
         using var game = ReaderHost.FindGame();
         var (catalogue, problem) = ReaderHost.LoadCatalogue(game);
-        var source = new SaveSource(gameVersion: GameVersion.Detect(game), catalogue: catalogue, catalogueProblem: problem);
+        var source = new SaveSource(gameVersion: GameVersion.Detect(game) ?? GameVersion.FromInstall(GameInstall.Find(null)), catalogue: catalogue, catalogueProblem: problem);
         var result = file is null ? source.Read() : source.ReadFile(file);
         if (result is SourceResult.Ok ok)
         {

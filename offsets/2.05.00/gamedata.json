@@ -13,7 +13,17 @@
     "minOffset": "0x2A",
     "maxOffset": "0x32",
     "markOffset": "0x3A",
-    "trailerItemOffset": "0x3D"
+    "trailerItemOffset": "0x3D",
+    "longEntry": {
+      "comment": "An entry whose type byte (entry +0x9) is 0x0D has one more byte after its trailing item. With this rule all 4,179 dropsetinfo records in the standard shape parse and end 24 bytes before their 73 E1 C5 EA footer marker; without it 22 fail. Checked 2026-11-13 on 1015062 and 1015069; see docs/re-notes/mission-static-data.md.",
+      "typeOffset": "0x9",
+      "type": "0xD",
+      "extraBytes": 1
+    }
+  },
+  "regionInfo": {
+    "comment": "Each regioninfo record (u32 name length + name, ...) holds its parent region's u16 key this many bytes after the name. Chains end at Region_<People>_Territory, e.g. Region_Node_Cal_CalphadeLoggingCamp -> Region_Calphade -> Region_Hernandian_Territory. Checked on 10 nodes in Hernand, Calphade, Demeniss and Pailune; see docs/re-notes/mission-regions.md.",
+    "parentAfterName": 13
   },
   "skillSlots": {
     "comment": "Slot runs now 1,581-1,585 bytes apart (were ~1,504) and the skill key sits 768 bytes before the marker (was 696). Brant, Matilda and Luke decode to the same slots as on 2.04.08.",
