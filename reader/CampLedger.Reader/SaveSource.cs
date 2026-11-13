@@ -161,6 +161,9 @@ public sealed class SaveSource : ISource
         };
     }
 
+    /// <summary>Random tables list dozens of items (51 for Lift Repair Support); the text keeps the first few.</summary>
+    const int MaxExtras = 12;
+
     /// <summary>Adds the game's reference data for one running mission. Leaves fields null when anything fails.</summary>
     void Describe(Mission m, List<string> unknowns)
     {
@@ -184,15 +187,13 @@ public sealed class SaveSource : ISource
         m.DurationHours = op.DurationHours;
         if (op.DurationHours is null) unknowns.Add($"{m.Name}: duration not found in game data");
 
-        Reserves? cost = Zero();
+        // Items that are not reserves (ore for Shipbuilding) do not touch the reserves; list them on their own.
+        Reserves cost = Zero();
+        var itemCost = new List<string>();
         foreach (var (item, amount) in op.Cost)
-            if (!Add(cost, item, amount))
-            {
-                unknowns.Add($"{m.Name}: cost includes non-reserve item {item}");
-                cost = null;
-                break;
-            }
+            if (!Add(cost, item, amount)) itemCost.Add($"{_catalogue.ItemName(item) ?? item.ToString()} x{amount}");
         m.Cost = cost;
+        m.ItemCost = itemCost.Count == 0 ? null : string.Join("; ", itemCost);
 
         Reserves? reward = Zero();
         var extras = new List<string>();
@@ -207,11 +208,13 @@ public sealed class SaveSource : ISource
             }
             foreach (var it in items)
             {
+                if (it.Max == 0) continue;                     // x0 entries give nothing (placeholders on build rewards)
                 bool certain = it.Chance >= 1.0 && it.Min == it.Max;
                 if (certain && Catalogue.Reserve.ContainsKey(it.Item)) Add(reward, it.Item, it.Min);
                 else
                 {
-                    string name = _catalogue.ItemName(it.Item) ?? it.Item.ToString();
+                    // Contribution rewards point at a sub-level (600 = Contribution_Graymane), not an item.
+                    string name = NonEmpty(_catalogue.ItemName(it.Item)) ?? NonEmpty(_catalogue.SublevelName(it.Item)) ?? it.Item.ToString();
                     string qty = it.Min == it.Max ? $"x{it.Min}" : $"x{it.Min}-{it.Max}";
                     extras.Add(it.Chance >= 1.0 ? $"{name} {qty}" : $"{name} {qty} ({it.Chance * 100:0}% chance)");
                 }
@@ -223,7 +226,9 @@ public sealed class SaveSource : ISource
             reward = null;
         }
         m.Reward = reward;
-        m.PersonalStorageReward = reward is null || extras.Count == 0 ? null : string.Join("; ", extras);
+        m.PersonalStorageReward = reward is null || extras.Count == 0 ? null
+            : extras.Count <= MaxExtras ? string.Join("; ", extras)
+            : string.Join("; ", extras.Take(MaxExtras)) + $"; and {extras.Count - MaxExtras} more";
     }
 
     /// <summary>
@@ -462,6 +467,8 @@ public sealed class SaveSource : ISource
         }
         return (list.Count, list.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase).ToList());
     }
+
+    static string? NonEmpty(string? s) => string.IsNullOrEmpty(s) ? null : s;
 
     static Reserves Zero() => new() { Food = 0, Funds = 0, Stone = 0, Timber = 0, Armaments = 0 };
 

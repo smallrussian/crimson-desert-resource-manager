@@ -272,3 +272,40 @@ Checks:
 
 Not checked: whether bonuses, camp level or skills shorten durations. The wiki mentions none.
 Live memory was searched first and did not show the total next to the running operation; not needed now.
+
+## Build rewards, long drop sets and item costs (2026-11-13, game 2.05.00, Steam build 26636972)
+
+Three missions on the owner's save showed "unknown" on the dashboard although the game data has everything:
+
+| Mission | Shown | Cause | Now |
+|---|---|---|---|
+| Rocca's Hill Slave Camp / St. Halssius's House of Healing Bridge Construction (role Building) | reward unknown | drop set fails its self-check | reward: no reserves (contribution XP and a x0 item) |
+| Senia Lift Repair Support | reward unknown | 51 entries; the reader capped sets at 32 | reward: no reserves; 51 food items at 1-2% each to storage |
+| Vellua Shipbuilding | cost unknown | cost includes QuartzOre x30 and Malachite x20 | reserve cost known; items listed separately (`itemCost`) |
+
+All 309 dispatch operations have at least one drop set, so "no reward table" was never the cause.
+
+**Long drop-set entries.** Entry byte +0x9 is a type. Entries of type `0x0D` are **one byte longer** (a
+`01` after the trailing item key). Seen on 1015062 (Rocca's bridge: `GamePlayVariableChange(BridgeConstruction_HellwoodSlaveCamp,
+True);SubLevelExp(Contribution_Hernandian,700)`): entry 1 is item 1000017, type 0x0D, x0, with its `FF FF` mark at
++0x50 and the next entry's mark at +0x92 instead of +0x91. On 1015069 (Pond) the 0x0D entry is last, which is
+why the pond read correctly before. Over every `dropsetinfo` record in the standard shape (4,179 of 17,186; the
+others have a different header and are not used by dispatch missions):
+
+| Rule | Records that parse | Footer marker `73 E1 C5 EA` after the last entry |
+|---|---|---|
+| fixed 0x41 entries | 4,157 (22 fail at entry 1 or 2) | +24 on 4,076, +25 on 77, +30 on 4 |
+| 0x0D entries one byte longer | 4,179 | +24 on 4,175, +30 on 4 |
+
+The 77 records whose footer moved to +25 are the ones ending with a 0x0D entry: with the rule they line up too.
+Kept as `dropSet.longEntry` in `offsets/2.05.00/gamedata.json`; 2.04.08 has no such entry, so a 0x0D entry
+there fails its next self-check and the set stays unknown (fail closed).
+
+Entry types seen: 0 (6,281), 4 (1,822), 1 (352), 6 (169), 13 (99), 9 (20), 3 (15), 16 (4), 5 (4). Type 6 is a
+sub-level XP grant: item 600 = sub-level `Contribution_Graymane`, 601 = `Contribution_Hernandian` (matches the
+comments `SubLevelExp(Contribution_Graymane,150)` and `(Contribution_Hernandian,700)`). The reader now names
+these by sub-level when the item has no name, and drops x0 entries from the storage text (they give nothing).
+
+**Owner statement, 2026-11-13:** building missions give no reserve rewards. Consistent with the game data: none
+of the 72 Building-role operations' drop sets contains a reserve item (11-15); they hold sub-level XP, game-play
+variable changes, x0 placeholders and single items. The dashboard labels such a reward "none (build)".

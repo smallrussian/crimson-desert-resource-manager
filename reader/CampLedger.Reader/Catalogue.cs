@@ -286,7 +286,11 @@ public sealed class Catalogue
     /// <summary>
     /// Drop-set entries, or null if the record is missing or fails its self-checks. Offsets are per version
     /// (offsets/&lt;version&gt;/gamedata.json): 2.05.00 added one byte before the count and one before each entry's trailer.
+    /// Entries are read in order: one type of entry is longer (<see cref="LongDropEntry"/>), so positions are summed, and
+    /// each entry must pass its own self-check. Random tables can be long (51 entries in DropSet_Operation_Food_3_5).
     /// </summary>
+    const int MaxDropEntries = 256;
+
     public IReadOnlyList<DropItem>? DropSet(uint key)
     {
         var L = _layout.DropSet;
@@ -299,16 +303,19 @@ public sealed class Catalogue
             if (skip < 4 || skip + L.EntriesOffset > b.Length || U32(b, skip) != key) return null;
             b = b.Slice(skip);
             int n = (int)U32(b, L.CountOffset);
-            if (n is < 0 or > 32 || L.EntriesOffset + n * L.EntrySize > b.Length) return null;
+            if (n is < 0 or > MaxDropEntries || L.EntriesOffset + n * L.EntrySize > b.Length) return null;
             var items = new List<DropItem>(n);
+            int at = L.EntriesOffset;
             for (int i = 0; i < n; i++)
             {
-                var e = b.Slice(L.EntriesOffset + i * L.EntrySize, L.EntrySize);
+                if (at + L.EntrySize > b.Length) return null;
+                var e = b.Slice(at, L.EntrySize);
                 uint item = U32(e, L.ItemOffset);
                 if (e[L.MarkOffset] != 0xFF || e[L.MarkOffset + 1] != 0xFF || U32(e, L.TrailerItemOffset) != item) return null;
                 long min = (long)BinaryPrimitives.ReadUInt64LittleEndian(e.Slice(L.MinOffset));
                 long max = (long)BinaryPrimitives.ReadUInt64LittleEndian(e.Slice(L.MaxOffset));
                 items.Add(new DropItem(item, min, max, U32(e, L.RateOffset) / 1_000_000.0));
+                at += L.EntrySize + (L.LongEntry is { } le && e[le.TypeOffset] == le.Type ? le.ExtraBytes : 0);
             }
             return items;
         }

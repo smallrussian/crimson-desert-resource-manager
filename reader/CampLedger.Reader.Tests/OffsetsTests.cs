@@ -63,7 +63,7 @@ public class OffsetsTests
         Assert.Equal(new DropSetLayout(0x11, 0x15, 0x40, 0x1, 0x1A, 0x2A, 0x32, 0x3A, 0x3C),
                      GameDataLayout.Load(Path.Combine(OffsetsDir(), "2.04.08", "gamedata.json")).DropSet);
         var v205 = GameDataLayout.Load(Path.Combine(OffsetsDir(), "2.05.00", "gamedata.json"));
-        Assert.Equal(new DropSetLayout(0x12, 0x16, 0x41, 0x1, 0x1A, 0x2A, 0x32, 0x3A, 0x3D), v205.DropSet);
+        Assert.Equal(new DropSetLayout(0x12, 0x16, 0x41, 0x1, 0x1A, 0x2A, 0x32, 0x3A, 0x3D, new LongDropEntry(0x9, 0xD, 1)), v205.DropSet);
         Assert.Equal(new SkillSlotLayout(768, 1480, 1680), v205.SkillSlots);
     }
 }

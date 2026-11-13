@@ -21,8 +21,15 @@ public static class Offsets
 }
 
 /// <summary>Layout of one drop-set record (dropsetinfo), from the start of the record after its comment.</summary>
+/// <param name="LongEntry">Entries of one type carry extra bytes after the trailer; null when not checked for a version
+/// (such an entry then fails the next entry's self-check, so the whole set reads as unknown).</param>
 public sealed record DropSetLayout(int CountOffset, int EntriesOffset, int EntrySize, int ItemOffset, int RateOffset,
-                                   int MinOffset, int MaxOffset, int MarkOffset, int TrailerItemOffset);
+                                   int MinOffset, int MaxOffset, int MarkOffset, int TrailerItemOffset,
+                                   LongDropEntry? LongEntry = null);
+
+/// <summary>A drop-set entry whose byte at <paramref name="TypeOffset"/> equals <paramref name="Type"/> is
+/// <paramref name="ExtraBytes"/> longer than the others.</summary>
+public sealed record LongDropEntry(int TypeOffset, int Type, int ExtraBytes);
 
 /// <summary>Layout of comrade skill slots in characterinfo: the marker run, and where the skill key sits before it.</summary>
 public sealed record SkillSlotLayout(int KeyBeforeMarker, int MinGap, int MaxGap);
@@ -48,7 +55,9 @@ public sealed record GameDataLayout(string GameVersion, DropSetLayout DropSet, S
             root.GetProperty("gameVersion").GetString()!,
             new DropSetLayout(H(d, "countOffset"), H(d, "entriesOffset"), H(d, "entrySize"), H(d, "itemOffset"),
                               H(d, "rateOffset"), H(d, "minOffset"), H(d, "maxOffset"), H(d, "markOffset"),
-                              H(d, "trailerItemOffset")),
+                              H(d, "trailerItemOffset"),
+                              d.TryGetProperty("longEntry", out var le)
+                                  ? new LongDropEntry(H(le, "typeOffset"), H(le, "type"), I(le, "extraBytes")) : null),
             new SkillSlotLayout(I(k, "keyBeforeMarker"), I(k, "minGap"), I(k, "maxGap")),
             root.TryGetProperty("regionInfo", out var r) ? I(r, "parentAfterName") : null);
     }
