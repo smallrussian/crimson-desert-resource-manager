@@ -24,6 +24,11 @@ public class ReaderTests
         public byte[] Done() => _m.ToArray();
     }
 
+    static readonly GameDataLayout V20408 = new("2.04.08",
+        new DropSetLayout(0x11, 0x15, 0x40, 0x1, 0x1A, 0x2A, 0x32, 0x3A, 0x3C), new SkillSlotLayout(696, 1400, 1600));
+    static readonly GameDataLayout V20500 = new("2.05.00",
+        new DropSetLayout(0x12, 0x16, 0x41, 0x1, 0x1A, 0x2A, 0x32, 0x3A, 0x3D), new SkillSlotLayout(768, 1480, 1680));
+
     static Table TableOf(params (uint Key, byte[] Record)[] records)
     {
         var body = new Bytes();
@@ -99,16 +104,18 @@ public class ReaderTests
         Assert.Throws<InvalidDataException>(() => body.Decode("Thing"));
     }
 
-    static byte[] DropEntry(uint item, ulong amount, uint rate = 1_000_000, bool corrupt = false)
+    // v205: the 2.05.00 layout, one extra byte before the count and one before each entry's trailing item.
+    static byte[] DropEntry(uint item, ulong amount, uint rate = 1_000_000, bool corrupt = false, bool v205 = false)
     {
         var e = new Bytes().U8(1).U32(item).Zero(0x1A - 5).U32(rate).Zero(0x2A - 0x1E)
-            .U64(amount).U64(amount).U8(0xFF).U8(0xFF).U32(corrupt ? item + 1 : item);
-        return e.Done();
+            .U64(amount).U64(amount).U8(0xFF).U8(0xFF);
+        if (v205) e.U8(0);
+        return e.U32(corrupt ? item + 1 : item).Done();
     }
 
-    static byte[] DropRecord(uint key, params byte[][] entries)
+    static byte[] DropRecord(uint key, bool v205, params byte[][] entries)
     {
-        var r = new Bytes().Str("Item(comment)").U32(key).Zero(13).U32((uint)entries.Length);
+        var r = new Bytes().Str("Item(comment)").U32(key).Zero(v205 ? 14 : 13).U32((uint)entries.Length);
         foreach (var e in entries) r.Raw(e);
         return r.Done();
     }
@@ -129,12 +136,13 @@ public class ReaderTests
             .Done();
     }
 
-    static Catalogue CatalogueFixture(bool corruptDrop = false, uint? durationTenths = null, DisplayNames? names = null)
+    static Catalogue CatalogueFixture(bool corruptDrop = false, uint? durationTenths = null, DisplayNames? names = null, bool v205 = false)
     {
         // The node record starts with its internal name, as in the game's factionnode table.
         var nodes = TableOf((1000070, new Bytes().Str("Node_Her_SouthQuarry").Raw(OperationRecord(42107545, 1015091, durationTenths)).Done()));
-        var drops = TableOf((1015091, DropRecord(1015091,
-            DropEntry(14, 1400), DropEntry(1000555, 5, corrupt: corruptDrop), DropEntry(1001241, 1, rate: 150_000))));
+        var drops = TableOf((1015091, DropRecord(1015091, v205,
+            DropEntry(14, 1400, v205: v205), DropEntry(1000555, 5, corrupt: corruptDrop, v205: v205),
+            DropEntry(1001241, 1, rate: 150_000, v205: v205))));
         var items = TableOf((1000555, new Bytes().Str("Fine_Stone").Done()));
         var characters = TableOf((1000253, new Bytes().Str("NHM_Unique_Marius_468").Done()));
         var skills = TableOf(
@@ -142,7 +150,8 @@ public class ReaderTests
             (66011, new Bytes().Str("Skill_Mining_II").Zero(171).U32(1000052).U32(30000).Zero(30).Done()),   // pair not at +178
             (66034, new Bytes().Str("Skill_Building_I").Zero(200).Done()),                                  // gate skill
             (10079, new Bytes().Str("Skill_TurnBash_II").Zero(20).U32(1000001).U32(1000).U32(1000002).U32(2000).Done()));
-        return new Catalogue(new() { nodes }, new() { drops }, new() { items }, new() { characters }, names, new() { skills });
+        return new Catalogue(new() { nodes }, new() { drops }, new() { items }, new() { characters }, v205 ? V20500 : V20408,
+                             names, new() { skills });
     }
 
     [Fact]
@@ -185,6 +194,26 @@ public class ReaderTests
     public void Drop_set_that_fails_its_self_check_is_unknown()
     {
         Assert.Null(CatalogueFixture(corruptDrop: true).DropSet(1015091));
+    }
+
+    [Fact]
+    public void Drop_set_reads_the_2_05_00_layout()
+    {
+        // Southern Quarry 1,400 stone, as on 2.04.08; checked against the game data on 2026-11-13.
+        var items = CatalogueFixture(v205: true).DropSet(1015091);
+        Assert.NotNull(items);
+        Assert.Equal(new DropItem(14, 1400, 1400, 1.0), items![0]);
+        Assert.Equal(0.15, items[2].Chance, 6);
+        Assert.Null(CatalogueFixture(v205: true, corruptDrop: true).DropSet(1015091));
+    }
+
+    [Fact]
+    public void Drop_set_in_the_wrong_layout_is_unknown_not_misread()
+    {
+        // What happened on the first 2.05.00 run: the old layout on new data must fail closed, never give numbers.
+        var drops = TableOf((1015091, DropRecord(1015091, true, DropEntry(14, 1400, v205: true))));
+        var c = new Catalogue(new() { TableOf() }, new() { drops }, new() { TableOf() }, new() { TableOf() }, V20408);
+        Assert.Null(c.DropSet(1015091));
     }
 
     [Fact]
@@ -315,13 +344,15 @@ public class ReaderTests
 
     static readonly byte[] Marker = { 0xFF, 0xFF, 0xFF, 0xFF, 0, 0, 0, 0, 0, 0, 0, 0, 0xA0, 0x86, 0x01, 0x00 };
 
-    static byte[] SlotRecord(int gap, params uint[] keys)
+    static byte[] SlotRecord(int gap, params uint[] keys) => SlotRecordAt(696, gap, keys);
+
+    static byte[] SlotRecordAt(int keyBefore, int gap, params uint[] keys)
     {
         var rec = new byte[1000 + gap * keys.Length + 100];
         for (int s = 0; s < keys.Length; s++)
         {
             int marker = 1000 + gap * s;
-            BitConverter.GetBytes(keys[s]).CopyTo(rec, marker - 696);
+            BitConverter.GetBytes(keys[s]).CopyTo(rec, marker - keyBefore);
             Marker.CopyTo(rec, marker);
             Marker.CopyTo(rec, marker + 40);   // later entries of the same run
         }
@@ -333,16 +364,27 @@ public class ReaderTests
     {
         var camp = new HashSet<uint> { 66004, 66005, 66020 };
         Assert.Equal(new uint[] { 66004, 66020, 66005, 0, 66005 },
-                     Catalogue.ParseSkillSlots(SlotRecord(1504, 66004, 66020, 66005, 0, 66005), camp.Contains));
+                     Catalogue.ParseSkillSlots(SlotRecord(1504, 66004, 66020, 66005, 0, 66005), camp.Contains, V20408.SkillSlots));
     }
 
     [Fact]
     public void Skill_slots_that_break_the_layout_are_unknown()
     {
         var camp = new HashSet<uint> { 66004, 66005 };
-        Assert.Null(Catalogue.ParseSkillSlots(SlotRecord(1200, 66004, 66005), camp.Contains));     // wrong spacing
-        Assert.Null(Catalogue.ParseSkillSlots(SlotRecord(1504, 66004, 12345), camp.Contains));     // not a skill
-        Assert.Null(Catalogue.ParseSkillSlots(SlotRecord(1504, 66004), camp.Contains));            // one slot only
+        var v = V20408.SkillSlots;
+        Assert.Null(Catalogue.ParseSkillSlots(SlotRecord(1200, 66004, 66005), camp.Contains, v));     // wrong spacing
+        Assert.Null(Catalogue.ParseSkillSlots(SlotRecord(1504, 66004, 12345), camp.Contains, v));     // not a skill
+        Assert.Null(Catalogue.ParseSkillSlots(SlotRecord(1504, 66004), camp.Contains, v));            // one slot only
+    }
+
+    [Fact]
+    public void Skill_slots_read_the_2_05_00_layout()
+    {
+        // 2.05.00: runs 1,581-1,585 bytes apart, key 768 bytes before the marker (Brant: Strengthening I, Service I, ...).
+        var camp = new HashSet<uint> { 66004, 66005, 66020 };
+        var rec = SlotRecordAt(768, 1581, 66004, 66020, 66005, 0, 66005);
+        Assert.Equal(new uint[] { 66004, 66020, 66005, 0, 66005 }, Catalogue.ParseSkillSlots(rec, camp.Contains, V20500.SkillSlots));
+        Assert.Null(Catalogue.ParseSkillSlots(rec, camp.Contains, V20408.SkillSlots));   // old layout: unknown, not wrong slots
     }
 
     [Fact]

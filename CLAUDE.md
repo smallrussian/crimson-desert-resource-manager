@@ -91,6 +91,8 @@ Start with tier 1. Do not begin tier 2 until the tier 1 findings are written up 
 - Unknown version: do nothing and say so. Patches shift layouts and the community
   parsers needed updates for many patches, so expect to redo work per patch.
 - Every layout file records the evidence it came from and the date checked.
+- When the game patches, follow `docs/patch-update.md` (one `game-<version>` branch per patch). Each version
+  needs `offsets/<version>/gamedata.json` (game-data record layouts) and `memory.json` (live memory).
 
 ### Sync client
 

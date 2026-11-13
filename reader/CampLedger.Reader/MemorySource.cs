@@ -52,11 +52,16 @@ public sealed class MemorySource : IDisposable
     public int LocatedCount => _objects.Count;
 
     public MemorySource(Process game, string? version)
+        : this(game, version is null ? null : Offsets.FileFor(version, "memory.json"), version ?? "unknown") { }
+
+    /// <summary>Uses a given layout file regardless of the game version (for checking a new layout: cdprobe verify).</summary>
+    public static MemorySource FromFile(Process game, string layoutFile) => new(game, layoutFile, layoutFile);
+
+    MemorySource(Process game, string? file, string label)
     {
-        string file = Path.Combine(AppContext.BaseDirectory, "offsets", version ?? "unknown", "memory.json");
-        if (version is null || !File.Exists(file))
+        if (file is null || !File.Exists(file))
         {
-            Problem = $"no memory layout for game version {version ?? "unknown"}";
+            Problem = $"no memory layout for game version {label}";
             return;
         }
         try

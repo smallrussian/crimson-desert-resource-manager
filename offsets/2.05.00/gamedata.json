@@ -1,0 +1,24 @@
+{
+  "gameVersion": "2.05.00",
+  "checked": "2026-11-13",
+  "evidence": "docs/re-notes/patch-2.05.00.md",
+  "comment": "Game-data record layouts the reader needs that have moved between patches. Hex strings are byte offsets. Steam build 26636972.",
+  "dropSet": {
+    "comment": "One byte added before the count (0x11 -> 0x12) and one before each entry's trailing item (0x3C -> 0x3D); entries grew 0x40 -> 0x41. Checked on 1015077 (1 item), 1015078 (2) and 1015082 (3): amounts equal the record comments.",
+    "countOffset": "0x12",
+    "entriesOffset": "0x16",
+    "entrySize": "0x41",
+    "itemOffset": "0x1",
+    "rateOffset": "0x1A",
+    "minOffset": "0x2A",
+    "maxOffset": "0x32",
+    "markOffset": "0x3A",
+    "trailerItemOffset": "0x3D"
+  },
+  "skillSlots": {
+    "comment": "Slot runs now 1,581-1,585 bytes apart (were ~1,504) and the skill key sits 768 bytes before the marker (was 696). Brant, Matilda and Luke decode to the same slots as on 2.04.08.",
+    "keyBeforeMarker": 768,
+    "minGap": 1480,
+    "maxGap": 1680
+  }
+}

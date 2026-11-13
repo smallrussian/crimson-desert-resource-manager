@@ -1,0 +1,26 @@
+{
+  "gameVersion": "2.05.00",
+  "checked": "2026-11-13",
+  "evidence": "docs/re-notes/patch-2.05.00.md",
+  "status": "Relocated on 2026-11-13 with cdprobe relocate (shape search with the 2.04.08 offsets, then the owner route). Only the three class RVAs moved; every object offset, the header and the balance marker are unchanged from 2.04.08. Steam build 26636972.",
+  "reserveObject": {
+    "comment": "Heap item object per camp reserve. Offsets are from the object start (its class pointer). All RVAs are relative to the exe's load address.",
+    "classRva": "0x599B338",
+    "parentOffset": "0x28",
+    "ownerClassRva": "0x5ACB500",
+    "rootClassRva": "0x5A78688",
+    "headerOffset": "0xD0",
+    "headerBytes": "0100000001000000",
+    "amountOffset": "0xD8",
+    "keyOffset": "0xE4",
+    "balanceListOffset": "0x30",
+    "itemKeys": {
+      "funds": 11,
+      "food": 12,
+      "timber": 13,
+      "stone": 14,
+      "armaments": 15
+    },
+    "rules": "Count only objects whose parent has ownerClassRva and whose grandparent has rootClassRva (display copies have no parent). Of those, the balance is the object with a non-empty list at balanceListOffset (pointer, then two non-zero u32s); pending changes (negative for costs, positive for gains) and zero placeholders have zeros there. Checked 2026-11-12 in two sessions on 2.04.08; same rule on 2.05.00 (2026-11-13)."
+  }
+}

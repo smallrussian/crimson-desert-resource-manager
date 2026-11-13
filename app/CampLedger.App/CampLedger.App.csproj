@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>CampLedger</AssemblyName>
+    <RootNamespace>CampLedger.App</RootNamespace>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <Version>0.1.0</Version>
+    <Product>Camp Ledger</Product>
+    <Description>Greymane Camp reserves, missions and net gain for Crimson Desert (read-only).</Description>
+    <!-- The reader is itself an exe (the console tool); the app hosts its code in-process. -->
+    <ValidateExecutableReferencesMatchSelfContained>false</ValidateExecutableReferencesMatchSelfContained>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Shows the existing dashboard page in a native window (Microsoft's Edge WebView2; runtime ships with Windows 11). -->
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\reader\CampLedger.Reader\CampLedger.Reader.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="app.ico" LogicalName="app.ico" />
+  </ItemGroup>
+  <PropertyGroup>
+    <AllowedReferenceRelatedFileExtensions>.pdb</AllowedReferenceRelatedFileExtensions>
+  </PropertyGroup>
+  <!-- The WebView2 package always references its WPF control too; this app is WinForms only. -->
+  <Target Name="DropWebView2Wpf" BeforeTargets="ResolveAssemblyReferences">
+    <ItemGroup>
+      <Reference Remove="@(Reference)" Condition="'%(Filename)' == 'Microsoft.Web.WebView2.Wpf'" />
+    </ItemGroup>
+  </Target>
+  <!-- The console reader's own launcher exe is framework-dependent and not needed in the app: drop it from publish. -->
+  <Target Name="DropReaderAppHost" AfterTargets="Publish">
+    <Delete Files="$(PublishDir)CampLedgerReader.exe;$(PublishDir)CampLedgerReader.runtimeconfig.json;$(PublishDir)CampLedgerReader.deps.json" />
+  </Target>
+</Project>

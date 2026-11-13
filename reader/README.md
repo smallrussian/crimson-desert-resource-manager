@@ -17,6 +17,9 @@ Run (`reader/CampLedger.Reader/bin/Release/net8.0-windows/CampLedgerReader.exe`)
 
 Snapshots are appended to `%LOCALAPPDATA%\CampLedger\snapshots.jsonl`.
 
+Game versions: the reader only uses game data and live memory for versions with a folder in `offsets/`
+(`gamedata.json` and `memory.json`). After a game patch, follow `docs/patch-update.md`.
+
 Tests (no game needed):
 
     dotnet test reader/CampLedger.Reader.Tests
