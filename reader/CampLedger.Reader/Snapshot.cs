@@ -12,6 +12,11 @@ public sealed class Snapshot
     public Reserves Reserves { get; init; } = new();
     public Workers Workers { get; init; } = new();
     public List<Mission> Missions { get; init; } = new();
+    /// <summary>
+    /// Missions that look startable: at a node whose save state is 2 and not blockaded, and not running now.
+    /// Candidate list, not yet checked against the game's dispatch board (docs/re-notes/available-missions.md).
+    /// </summary>
+    public List<Mission> AvailableMissions { get; init; } = new();
     /// <summary>In-game clock in milliseconds (save field _fieldTimeRaw), or null.</summary>
     public ulong? InGameClock { get; init; }
     /// <summary>Things this snapshot could not establish, in plain words.</summary>
@@ -49,9 +54,17 @@ public sealed class Workers
 
 public sealed class Mission
 {
+    /// <summary>What the sheet calls "Mission / Location": the English location, else the mission type.</summary>
     public string? Name { get; set; }
+    /// <summary>English mission type as the game shows it, e.g. "Hasty Mining".</summary>
     public string? Type { get; set; }
+    /// <summary>English location as the game shows it, e.g. "Southern Quarry".</summary>
+    public string? Location { get; set; }
     public string? Region { get; set; }
+    /// <summary>Game's internal node name without the Node_ prefix, e.g. Her_SouthQuarry_Work_Stone_Tier2.</summary>
+    public string? InternalName { get; set; }
+    /// <summary>Game's internal category, e.g. Mining.</summary>
+    public string? Category { get; set; }
     public bool Active { get; set; }
     public int? Workers { get; set; }
     /// <summary>"Members Required" range from the game's mission data.</summary>
@@ -63,6 +76,8 @@ public sealed class Mission
     public Reserves? Cost { get; set; }
     /// <summary>Base reward per cycle, before conversion, skill and comrade bonuses.</summary>
     public Reserves? Reward { get; set; }
+    /// <summary>Reward bonus inputs. The calc core turns these into a total with the user's camp level.</summary>
+    public MissionBonus? Bonus { get; set; }
     public string? PersonalStorageReward { get; set; }
 
     // Identifiers and state read from the save. Names, costs and rewards need the game's static tables.
@@ -71,6 +86,30 @@ public sealed class Mission
     public double? ElapsedHours { get; set; }
     public bool? Repeat { get; set; }
 }
+
+/// <summary>
+/// What the game adds to a mission's base reward (docs/re-notes/comrade-bonuses.md). The three parts add:
+/// conversion + best comrade's unlocked skill total + 20% per comrade above the minimum (max 40%).
+/// </summary>
+public sealed class MissionBonus
+{
+    /// <summary>Church blessing level of the mission's region x 2. Null when the region has no known church.</summary>
+    public int? ConversionPercent { get; set; }
+    /// <summary>Skill type the mission's rewards respond to, e.g. "Farming". Null if unknown.</summary>
+    public string? SkillType { get; set; }
+    /// <summary>Assigned comrades and their skill slots. Null when any could not be read.</summary>
+    public List<AssignedComrade>? Comrades { get; set; }
+}
+
+public sealed class AssignedComrade
+{
+    public string? Name { get; set; }
+    public long? CharacterKey { get; set; }
+    /// <summary>Skill per slot, slot 1 first; null for a slot without a reward skill. Unlocked slots = camp level.</summary>
+    public List<SlotSkill?> Slots { get; set; } = new();
+}
+
+public sealed record SlotSkill(string Type, int Percent);
 
 /// <summary>A source either returns a snapshot or says why it cannot.</summary>
 public abstract record SourceResult

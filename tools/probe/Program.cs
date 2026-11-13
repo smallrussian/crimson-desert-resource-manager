@@ -48,6 +48,78 @@ static class P
             Console.WriteLine("range: " + string.Join(", ", ops.Where(o => o.DurationHours is not null).GroupBy(o => o.DurationHours).OrderBy(g => g.Key).Select(g => $"{g.Key}h x{g.Count()}")));
             return 0;
         }
+        if (a[0] == "savenodes")
+        {
+            // Read-only: copies the newest save to a temp file and decodes the copy.
+            var src = new CampLedger.Reader.SaveSource().NewestSave()!;
+            string copy = Path.Combine(Path.GetTempPath(), $"probe-{Guid.NewGuid():N}.save");
+            File.Copy(src.FullName, copy);
+            File.SetAttributes(copy, FileAttributes.Normal);
+            byte[] raw = File.ReadAllBytes(copy);
+            File.Delete(copy);
+            var body = new CampLedger.Reader.SaveBody(CampLedger.Reader.SaveCrypto.Decode(raw));
+            var faction = body.Decode("FactionSaveData")!;
+            var nodes = ((List<object?>)faction["_factionNodeElementSaveDataList"]!).OfType<Dictionary<string, object?>>().ToList();
+            Console.WriteLine($"{src.FullName}: {nodes.Count} nodes; top-level fields: {string.Join(", ", faction.Keys)}");
+            var counts = new Dictionary<string, int>();
+            foreach (var n in nodes) foreach (var k in n.Keys) counts[k] = counts.GetValueOrDefault(k) + 1;
+            foreach (var (k, c) in counts.OrderBy(x => x.Key))
+            {
+                var vals = nodes.Where(n => n.ContainsKey(k)).Select(n => n[k] is List<object?> l ? $"list[{l.Count}]" : Convert.ToString(n[k], System.Globalization.CultureInfo.InvariantCulture))
+                    .GroupBy(v => v).OrderByDescending(g => g.Count()).Take(6).Select(g => $"{g.Key} x{g.Count()}");
+                Console.WriteLine($"  {k,-40} {c,5}  {string.Join(" | ", vals)}");
+            }
+            if (a.Length > 1 && a[1] == "factions")
+            {
+                static string Show(object? v, int depth) => v switch
+                {
+                    List<object?> l => depth > 2 ? $"list[{l.Count}]" : "[" + string.Join("; ", l.Take(12).Select(x => Show(x, depth + 1))) + (l.Count > 12 ? $"; …{l.Count}" : "") + "]",
+                    Dictionary<string, object?> d => "{" + string.Join(", ", d.Where(kv => kv.Key != "__type").Select(kv => $"{kv.Key}={Show(kv.Value, depth + 1)}")) + "}",
+                    _ => Convert.ToString(v, System.Globalization.CultureInfo.InvariantCulture) ?? "null",
+                };
+                foreach (var f in ((List<object?>)faction["_factionElementSaveDataList"]!).OfType<Dictionary<string, object?>>())
+                    if (a.Length < 3 || a.Skip(2).Any(w => Show(f, 0).Contains(w)))
+                        Console.WriteLine(Show(f, 0));
+                return 0;
+            }
+            if (a.Length > 1 && a[1] == "camp")
+            {
+                var cat = new CampLedger.Reader.Catalogue(new CampLedger.Reader.Archive(CampLedger.Reader.GameInstall.Find(null)!));
+                var ops = ((Dictionary<uint, CampLedger.Reader.OperationInfo>)typeof(CampLedger.Reader.Catalogue)
+                    .GetField("_operations", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+                    .GetValue(cat)!).Values.Where(o => o.Category is not null).ToList();
+                var byNode = nodes.ToDictionary(n => Convert.ToUInt32(n["_ownerFactionKey"]));
+                string State(uint node) => byNode.TryGetValue(node, out var n)
+                    ? $"state={n.GetValueOrDefault("_factionState")} block={n.GetValueOrDefault("_isBlock") ?? "-"} by={n.GetValueOrDefault("_blockadingFactionKey") ?? "-"} conq={n.GetValueOrDefault("_conquerorFactionKey") ?? "-"} sub={n.GetValueOrDefault("_blockSubType") ?? "-"} skills={(n.GetValueOrDefault("_factionNodeApplySkillList") as List<object?>)?.Count.ToString() ?? "-"}"
+                    : "not in save";
+                if (a.Length > 2 && a[2] == "held")
+                {
+                    bool Held(uint node) => byNode.TryGetValue(node, out var n) && Convert.ToString(n.GetValueOrDefault("_factionState")) == "2"
+                        && !n.ContainsKey("_isBlock")
+                        && (a.Length < 4 || a[3] != "strict" || Convert.ToString(n.GetValueOrDefault("_blockadingFactionKey")) == "1000000" || Convert.ToString(n.GetValueOrDefault("_conquerorFactionKey")) == "1000000");
+                    var held = ops.Where(o => Held(o.NodeKey)).OrderBy(o => cat.NodeLocation(o.NodeKey) ?? o.InternalName).ToList();
+                    Console.WriteLine($"{held.Count} missions at held nodes ({held.Select(o => o.NodeKey).Distinct().Count()} nodes)");
+                    foreach (var o in held)
+                        Console.WriteLine($"  {CampLedger.Reader.Catalogue.RegionOf(o.InternalName),-9} {cat.NodeLocation(o.NodeKey) ?? "-",-34} {cat.OperationDisplayName(o.Key),-42} {o.Category,-12} {o.MembersMin}-{o.MembersMax}  {o.DurationHours}h");
+                    return 0;
+                }
+                if (a.Length > 2)
+                {
+                    foreach (var o in ops.Where(o => (o.InternalName ?? "").Contains(a[2], StringComparison.OrdinalIgnoreCase)))
+                        Console.WriteLine($"{o.NodeKey} {o.InternalName} {cat.OperationDisplayName(o.Key)}: " + (byNode.TryGetValue(o.NodeKey, out var n)
+                            ? string.Join(", ", n.Where(kv => kv.Key != "__type").Select(kv => $"{kv.Key}={(kv.Value is List<object?> l ? $"list[{l.Count}]" : kv.Value)}"))
+                            : "not in save"));
+                    return 0;
+                }
+                foreach (var g in ops.GroupBy(o => State(o.NodeKey)).OrderByDescending(g => g.Count()))
+                    Console.WriteLine($"{g.Count(),4}  {g.Key}  e.g. {string.Join("; ", g.Take(4).Select(o => $"{cat.NodeLocation(o.NodeKey) ?? o.InternalName}/{cat.OperationDisplayName(o.Key)}"))}");
+                return 0;
+            }
+            foreach (string want in a.Skip(1))
+                foreach (var n in nodes.Where(n => Convert.ToString(n.GetValueOrDefault("_ownerFactionKey")) == want))
+                    Console.WriteLine($"node {want}: " + string.Join(", ", n.Select(kv => $"{kv.Key}={(kv.Value is List<object?> l ? $"list[{l.Count}]" : kv.Value)}")));
+            return 0;
+        }
         if (a[0] == "nodefind")
         {
             var t = new CampLedger.Reader.Archive(CampLedger.Reader.GameInstall.Find(null)!).Tables("factionnode")

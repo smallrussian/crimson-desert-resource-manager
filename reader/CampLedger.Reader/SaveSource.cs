@@ -72,8 +72,10 @@ public sealed class SaveSource : ISource
     {
         var unknowns = new List<string>
         {
-            "mission rewards are base amounts; conversion, skill and comrade bonuses are not applied",
+            "mission rewards are base amounts; bonus inputs are in missions[].bonus, and the total needs the camp level (a user setting)",
         };
+        if (_catalogue is { HasDisplayNames: false })
+            unknowns.Add("English names not loaded: " + _catalogue.NamesProblem);
         if (_catalogue is null)
             unknowns.Add("game data not loaded, so mission details and workers.total are unknown: "
                          + (_catalogueProblem ?? "no install found"));
@@ -99,6 +101,14 @@ public sealed class SaveSource : ISource
 
         var missions = new List<Mission>();
         int inUse = 0;
+        var characterOf = new Dictionary<long, long>();
+        foreach (var merc in List(body.Decode("MercenaryClanSaveData"), "_mercenaryDataList"))
+            if (Long(merc, "_mercenaryNo") is long no && Long(merc, "_characterKey") is long ck) characterOf[no] = ck;
+        var sublevels = new Dictionary<string, long>();
+        var subBlock = body.Decode("SubLevelSaveData");
+        foreach (var e in List(subBlock, "_list"))
+            if (Long(e, "_key") is long k && Long(e, "_level") is long lv && _catalogue?.SublevelName((uint)k) is string sn)
+                sublevels[sn] = lv;
         var faction = body.Decode("FactionSaveData");
         if (faction is null) unknowns.Add("FactionSaveData block missing: no mission state");
         foreach (var node in List(faction, "_factionNodeElementSaveDataList"))
@@ -118,6 +128,8 @@ public sealed class SaveSource : ISource
                 Repeat = node.TryGetValue("_operationShouldRepeat", out var r) && r is bool b ? b : null,
             };
             Describe(mission, unknowns);
+            mission.Bonus = BonusOf(mission, List(node, "_operatorMercenaryList").Select(m => Long(m, "_mercenaryNo")).ToList(),
+                                    characterOf, subBlock is null ? null : sublevels, unknowns);
             missions.Add(mission);
         }
 
@@ -133,6 +145,7 @@ public sealed class SaveSource : ISource
             Reserves = reserves,
             Workers = new Workers { Total = TotalWorkers(body, unknowns), InUse = faction is null ? null : inUse },
             Missions = missions,
+            AvailableMissions = Available(faction, missions, sublevels, subBlock is not null, unknowns),
             InGameClock = clock,
             Unknowns = unknowns,
         };
@@ -148,8 +161,12 @@ public sealed class SaveSource : ISource
             unknowns.Add($"operation {key}: not found in game data");
             return;
         }
-        m.Name = op.InternalName?.StartsWith("Node_") == true ? op.InternalName[5..] : op.InternalName;
-        m.Type = op.Category;
+        m.InternalName = op.InternalName?.StartsWith("Node_") == true ? op.InternalName[5..] : op.InternalName;
+        m.Category = op.Category;
+        m.Type = _catalogue.OperationDisplayName((uint)key);
+        m.Location = _catalogue.NodeLocation(op.NodeKey);
+        m.Name = m.Location ?? m.Type ?? m.InternalName;
+        if (_catalogue.HasDisplayNames && m.Type is null) unknowns.Add($"{m.InternalName}: English mission name not found");
         m.Role = op.Role;
         m.Region = Catalogue.RegionOf(op.InternalName);
         m.WorkersMin = op.MembersMin;
@@ -197,6 +214,82 @@ public sealed class SaveSource : ISource
         }
         m.Reward = reward;
         m.PersonalStorageReward = reward is null || extras.Count == 0 ? null : string.Join("; ", extras);
+    }
+
+    /// <summary>
+    /// Candidate startable missions. Node rule (2.04.08): `_factionState` 2 and no `_isBlock`. Not checked against
+    /// the game yet; finished one-off builds cannot be told apart from open ones, so they may be listed.
+    /// </summary>
+    List<Mission> Available(Dictionary<string, object?>? faction, List<Mission> running, Dictionary<string, long> sublevels,
+                            bool haveSublevels, List<string> unknowns)
+    {
+        var result = new List<Mission>();
+        if (_catalogue is null || faction is null) return result;
+        var runningOps = running.Select(m => m.OperationKey).ToHashSet();
+        var ignored = new List<string>();
+        foreach (var node in List(faction, "_factionNodeElementSaveDataList"))
+        {
+            if (Long(node, "_ownerFactionKey") is not long nodeKey || Long(node, "_factionState") != 2
+                || node.ContainsKey("_isBlock")) continue;
+            foreach (var op in _catalogue.OperationsAt((uint)nodeKey))
+            {
+                if (runningOps.Contains(op.Key)) continue;
+                var m = new Mission { Active = false, NodeKey = nodeKey, OperationKey = op.Key };
+                Describe(m, ignored);
+                m.Bonus = BonusOf(m, new List<long?>(), new Dictionary<long, long>(), haveSublevels ? sublevels : null, ignored);
+                if (m.Bonus is not null) m.Bonus.Comrades = null;   // nobody assigned yet
+                result.Add(m);
+            }
+        }
+        unknowns.Add($"availableMissions ({result.Count}) is a candidate list: node not blockaded, mission not running; not yet checked against the game");
+        return result;
+    }
+
+    /// <summary>Church sub-level per region (sublevelinfo names). Regions not listed have no known church.</summary>
+    static readonly Dictionary<string, string> Religion = new()
+    {
+        ["Hernand"] = "Religion_Hernand", ["Demeniss"] = "Religion_Demenissian", ["Delesyia"] = "Religion_Delesyian",
+    };
+
+    MissionBonus? BonusOf(Mission m, List<long?> mercs, Dictionary<long, long> characterOf,
+                          Dictionary<string, long>? sublevels, List<string> unknowns)
+    {
+        if (_catalogue is null || m.OperationKey is not long opKey) return null;
+        var op = _catalogue.Operation((uint)opKey);
+        var bonus = new MissionBonus
+        {
+            SkillType = op?.SkillStatus is uint st ? _catalogue.SkillTypeOf(st) : null,
+        };
+        // No save entry for a region's church means level 0 (Burnhand, Demeniss: none in the save, game shows +0%).
+        if (m.Region is string region && Religion.TryGetValue(region, out var sub) && sublevels is not null)
+            bonus.ConversionPercent = (int)(2 * sublevels.GetValueOrDefault(sub));
+        else unknowns.Add($"{m.Name}: conversion bonus unknown (no church level for region {m.Region ?? "unknown"})");
+
+        var comrades = new List<AssignedComrade>();
+        foreach (long? no in mercs)
+        {
+            string? problem = null;
+            long ck = 0;
+            IReadOnlyList<uint>? slots = null;
+            if (no is not long n) problem = "assigned comrade has no number";
+            else if (!characterOf.TryGetValue(n, out ck)) problem = $"comrade {n} not in the comrade list";
+            else if ((slots = _catalogue.SkillSlots((uint)ck)) is null) problem = $"character {ck}: skill slots did not match the known layout";
+            if (problem is not null || slots is null)
+            {
+                unknowns.Add($"{m.Name}: comrade skills unknown ({problem})");
+                comrades = null;
+                break;
+            }
+            comrades.Add(new AssignedComrade
+            {
+                Name = _catalogue.CharacterDisplayName((uint)ck),
+                CharacterKey = ck,
+                Slots = slots.Select(k => _catalogue.Skill(k) is CampSkill cs ? new SlotSkill(cs.Type, cs.Percent) : null).ToList(),
+            });
+        }
+        bonus.Comrades = comrades;
+        if (bonus.SkillType is null) unknowns.Add($"{m.Name}: skill type unknown, so the skill bonus is unknown");
+        return bonus;
     }
 
     /// <summary>

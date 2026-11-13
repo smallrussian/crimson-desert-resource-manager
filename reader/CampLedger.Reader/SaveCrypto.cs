@@ -40,7 +40,7 @@ public static class SaveCrypto
         return Lz4.DecompressBlock(comp, rawSize);
     }
 
-    static void ChaCha20(byte[] key, ReadOnlySpan<byte> nonce16, Span<byte> data)
+    internal static void ChaCha20(byte[] key, ReadOnlySpan<byte> nonce16, Span<byte> data)
     {
         Span<uint> s = stackalloc uint[16];
         s[0] = 0x61707865; s[1] = 0x3320646e; s[2] = 0x79622d32; s[3] = 0x6b206574;

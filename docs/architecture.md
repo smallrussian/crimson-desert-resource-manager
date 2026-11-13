@@ -53,8 +53,21 @@ Snapshots now carry, per running mission: internal name, category, role, region,
 base reward, and extra item rewards with their chance. `workers.total` uses the dispatchable-comrade rule
 (always excluding Marius). Loading the game data takes well under a second.
 
-Still null: mission duration (not located), display names (localisation not decoded), and bonus-included
-rewards (rules known, inputs only partly read).
+Still null at the time: mission duration (since found), display names and bonus-included rewards (since
+added; see below).
+
+## Names, bonuses and available missions (2026-11-12)
+
+- **English names.** The archive reader also indexes the small language groups (`0019`-`0033`; English is
+  `0020`) and decrypts string tables (ChaCha20 keyed by file name; `EntryCrypto`, `StringTable` in
+  `Localisation.cs`). Missions get `type` (e.g. "Hasty Mining"), `location` ("Southern Quarry") and `name`
+  (location, else type); the internal name moved to `internalName`. Evidence: `docs/re-notes/localisation.md`.
+- **Bonus inputs.** Each mission carries `bonus`: conversion percent, skill type and the assigned comrades'
+  skill slots. The total needs the camp level, which is not located, so it is computed in the calc core
+  (`core/CampLedger.Core/Bonus.cs`) from a user setting. Evidence: `docs/re-notes/comrade-bonuses.md`.
+- **Available missions.** `availableMissions` lists candidates (node not blockaded, mission not running).
+  Not yet checked against the game. Evidence: `docs/re-notes/available-missions.md`.
+- Snapshot and game-data load take about 0.6 s together.
 
 ## Tests
 

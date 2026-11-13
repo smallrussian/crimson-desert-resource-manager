@@ -46,16 +46,25 @@ public sealed class Archive
 
     public Archive(string installDir)
     {
-        var groups = new List<string> { Path.Combine(installDir, "0008") };
+        var roots = new List<string> { installDir };
         string dlcRoot = Path.Combine(installDir, "dlc");
-        if (Directory.Exists(dlcRoot))
-            groups.AddRange(Directory.GetDirectories(dlcRoot).Select(d => Path.Combine(d, "0008")));
-        foreach (string g in groups)
+        if (Directory.Exists(dlcRoot)) roots.AddRange(Directory.GetDirectories(dlcRoot));
+        foreach (string root in roots)
         {
-            string pamt = Path.Combine(g, "0.pamt");
+            string pamt = Path.Combine(root, "0008", "0.pamt");
             if (File.Exists(pamt)) Parse(pamt);
         }
         if (_entries.Count == 0) throw new InvalidDataException($"no readable data index under {installDir}");
+        // Language packs (string tables) sit in their own small groups, e.g. 0020 for English on 2.04.08.
+        // Their indexes are a few KB; the big asset groups are skipped. A group that does not parse is ignored.
+        foreach (string root in roots)
+            foreach (string g in Directory.GetDirectories(root))
+            {
+                string pamt = Path.Combine(g, "0.pamt");
+                if (Path.GetFileName(g) == "0008" || !File.Exists(pamt) || new FileInfo(pamt).Length > 16 * 1024) continue;
+                try { Parse(pamt); }
+                catch (Exception e) when (e is not OutOfMemoryException) { }
+            }
     }
 
     void Parse(string pamt)
@@ -119,12 +128,32 @@ public sealed class Archive
         {
             var parts = group.Select(Read).ToList();
             // Header: u16 count, then count x (u32 key, u32 offset). The body is the other part.
-            byte[]? head = parts.FirstOrDefault(p => p.Length >= 2 && p.Length == 2 + 8 * BinaryPrimitives.ReadUInt16LittleEndian(p));
+            // Most tables use u32 keys; a few (regioninfo) use u16 keys, so header entries are 6 bytes.
+            byte[]? head = parts.FirstOrDefault(p => KeySize(p) != 0);
             byte[]? body = parts.FirstOrDefault(p => !ReferenceEquals(p, head));
             if (head is null || body is null) throw new InvalidDataException($"{table}: header and body not found");
-            result.Add(new Table(body, head));
+            result.Add(new Table(body, head, KeySize(head)));
         }
         if (result.Count == 0) throw new InvalidDataException($"table {table} not found");
+        return result;
+    }
+
+    static int KeySize(byte[] p)
+    {
+        if (p.Length < 2) return 0;
+        int n = BinaryPrimitives.ReadUInt16LittleEndian(p);
+        return p.Length == 2 + 8 * n ? 4 : p.Length == 2 + 6 * n ? 2 : 0;
+    }
+
+    /// <summary>A string table in one language, base first then DLC copies. Throws if none is found.</summary>
+    public List<StringTable> StringTables(string table, string language = "eng")
+    {
+        string path = $"gamedata/stringtable/binary__/{language}/{table}";
+        var result = _entries.Where(e => e.Name == path || e.Name.StartsWith(path + ".dlc"))
+            .OrderBy(e => e.Name.Length)
+            .Select(e => StringTable.Parse(EntryCrypto.Decrypt(Read(e), e.Name[(e.Name.LastIndexOf('/') + 1)..] + ".paloc")))
+            .ToList();
+        if (result.Count == 0) throw new InvalidDataException($"string table {language}/{table} not found");
         return result;
     }
 
@@ -149,14 +178,15 @@ public sealed class Table
     public byte[] Body { get; }
     public Dictionary<uint, (int Start, int End)> Records { get; } = new();
 
-    public Table(byte[] body, byte[] head)
+    public Table(byte[] body, byte[] head, int keySize = 4)
     {
         Body = body;
-        int n = BinaryPrimitives.ReadUInt16LittleEndian(head);
+        int n = BinaryPrimitives.ReadUInt16LittleEndian(head), step = keySize + 4;
         var entries = new (uint Key, int Offset)[n];
         for (int i = 0; i < n; i++)
-            entries[i] = (BinaryPrimitives.ReadUInt32LittleEndian(head.AsSpan(2 + 8 * i)),
-                          (int)BinaryPrimitives.ReadUInt32LittleEndian(head.AsSpan(6 + 8 * i)));
+            entries[i] = (keySize == 2 ? BinaryPrimitives.ReadUInt16LittleEndian(head.AsSpan(2 + step * i))
+                                       : BinaryPrimitives.ReadUInt32LittleEndian(head.AsSpan(2 + step * i)),
+                          (int)BinaryPrimitives.ReadUInt32LittleEndian(head.AsSpan(2 + keySize + step * i)));
         var starts = entries.Select(e => e.Offset).Distinct().Order().ToList();
         starts.Add(body.Length);
         var next = new Dictionary<int, int>();
