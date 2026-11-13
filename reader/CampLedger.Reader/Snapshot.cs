@@ -18,6 +18,8 @@ public sealed class Snapshot
     /// something the source could not settle.
     /// </summary>
     public List<Mission> AvailableMissions { get; init; } = new();
+    /// <summary>Dispatchable comrades (same rule as workers.total), with skill slots and current mission. Null if unread.</summary>
+    public List<Comrade>? Comrades { get; init; }
     /// <summary>Camp level from the save (highest BaseCamp_LvN game-play variable set), or null.</summary>
     public int? CampLevel { get; init; }
     /// <summary>In-game clock in milliseconds (save field _fieldTimeRaw), or null.</summary>
@@ -117,6 +119,21 @@ public sealed class AssignedComrade
 }
 
 public sealed record SlotSkill(string Type, int Percent);
+
+/// <summary>A camp skill in a comrade's slot, e.g. Farming tier 2 = +30%. Percent 0 for gate skills (e.g. Building).</summary>
+public sealed record ComradeSkill(string Type, int Tier, int Percent);
+
+public sealed class Comrade
+{
+    public string? Name { get; set; }
+    public long? CharacterKey { get; set; }
+    public long? MercenaryNo { get; set; }
+    /// <summary>Skill per slot, slot 1 first; null entry = no camp skill there. Null list = slots not read.</summary>
+    public List<ComradeSkill?>? Slots { get; set; }
+    /// <summary>The running mission this comrade is on, or null when free.</summary>
+    public string? MissionName { get; set; }
+    public long? OperationKey { get; set; }
+}
 
 /// <summary>A source either returns a snapshot or says why it cannot.</summary>
 public abstract record SourceResult

@@ -42,7 +42,9 @@
 <nav class="tabs" role="tablist" aria-label="Views">
   <button role="tab" id="tab-missions" aria-controls="view-missions" aria-selected="true">Missions</button>
   <button role="tab" id="tab-available" aria-controls="view-available" aria-selected="false">Available <span id="availCount" class="count"></span></button>
-  <button role="tab" id="tab-planner" aria-controls="view-planner" aria-selected="false">Planner</button>
+  <button role="tab" id="tab-comrades" aria-controls="view-comrades" aria-selected="false">Comrades</button>
+  <button role="tab" id="tab-plan" aria-controls="view-plan" aria-selected="false">Plan <span id="planCount" class="count" hidden></span></button>
+  <button role="tab" id="tab-planner" aria-controls="view-planner" aria-selected="false">Upgrade</button>
   <button role="tab" id="tab-history" aria-controls="view-history" aria-selected="false">History</button>
 </nav>
 
@@ -65,6 +67,17 @@
     <div id="availList" class="list"></div>
   </section>
 
+  <section id="view-comrades" role="tabpanel" aria-labelledby="tab-comrades" hidden>
+    <div class="toolbar">
+      <input id="cq" type="search" placeholder="Search comrades" aria-label="Search comrades">
+      <select id="cskill" aria-label="Skill"><option value="">Any skill</option></select>
+      <div class="chips" id="cstate" role="group" aria-label="Status"></div>
+    </div>
+    <div id="comradeList" class="cards comrade-grid"></div>
+  </section>
+
+  <section id="view-plan" role="tabpanel" aria-labelledby="tab-plan" hidden></section>
+
   <section id="view-planner" role="tabpanel" aria-labelledby="tab-planner" hidden>
     <div class="panel">
       <h2>Upgrade planner</h2>
@@ -85,6 +98,8 @@
     </div>
   </section>
 </main>
+
+<div id="planBar" class="plan-bar" hidden></div>
 
 <footer class="foot">
   <details id="unknowns"><summary>What couldn't be read</summary><ul></ul></details>

@@ -153,3 +153,22 @@ opts in to serving on the home network (not done: it listens on localhost only).
   (`mission-static-data.md`); labelled as approximate.
 - Page: plain HTML/CSS/JS, no framework or CDN (fast, offline). Dark crimson-and-gold theme, serif headings
   (Windows' Palatino Linotype), tabular numbers, keyboard shortcuts 1-4 and `/`, responsive down to phone width.
+
+### Comrades and what-if plans (2026-11-12)
+
+- Snapshot `comrades[]`: every dispatchable comrade (same rule as `workers.total`) with skill slots
+  (`ComradeSkill`: type, tier, percent) and the running mission they are on, if any.
+- Dashboard **Comrades** tab: status, slots with camp-level locks, filter by skill (sorted by unlocked total).
+- Dashboard **Plan** tab and `GET /api/simulate?add=op:ck.ck,...&stop=op,...`: running repeating missions minus
+  stopped ones plus available missions with chosen comrades, through the calc core (bonus from the chosen
+  comrades' unlocked slots; +20% per comrade above the minimum). Shows per-reserve before/after per hour and day,
+  free comrades before/after, and problems (busy comrade, too few, over capacity, operating budget). A mission
+  with too few comrades is counted at its minimum with no matching skill. The plan lives in the browser's
+  local storage only.
+
+### How fresh the data is
+
+- Reserves: live from game memory, written when they change (checked every 5 s while the game runs).
+- Missions, comrades, available missions, camp level: from the save, so they update when the game saves
+  (autosave or manual). The watcher checks for a newer save every 5 s.
+- The page polls every 3 s (ETag; unchanged data costs a 304).

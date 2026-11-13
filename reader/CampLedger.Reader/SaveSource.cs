@@ -102,6 +102,7 @@ public sealed class SaveSource : ISource
         var missions = new List<Mission>();
         int inUse = 0;
         var characterOf = new Dictionary<long, long>();
+        var assignedTo = new Dictionary<long, Mission>();   // mercenary number -> running mission
         foreach (var merc in List(body.Decode("MercenaryClanSaveData"), "_mercenaryDataList"))
             if (Long(merc, "_mercenaryNo") is long no && Long(merc, "_characterKey") is long ck) characterOf[no] = ck;
         var sublevels = new Dictionary<string, long>();
@@ -128,11 +129,14 @@ public sealed class SaveSource : ISource
                 Repeat = node.TryGetValue("_operationShouldRepeat", out var r) && r is bool b ? b : null,
             };
             Describe(mission, unknowns);
+            foreach (var m in List(node, "_operatorMercenaryList"))
+                if (Long(m, "_mercenaryNo") is long mno) assignedTo[mno] = mission;
             mission.Bonus = BonusOf(mission, List(node, "_operatorMercenaryList").Select(m => Long(m, "_mercenaryNo")).ToList(),
                                     characterOf, subBlock is null ? null : sublevels, unknowns);
             missions.Add(mission);
         }
 
+        var roster = Roster(body, assignedTo, unknowns);
         var facts = Facts(body, faction, subBlock is null ? null : sublevels);
         int? campLevel = CampLevel(facts);
         if (campLevel is null) unknowns.Add("camp level unknown: no BaseCamp_Lv game-play variable read");
@@ -147,7 +151,8 @@ public sealed class SaveSource : ISource
             GameVersion = _gameVersion,
             Source = "save",
             Reserves = reserves,
-            Workers = new Workers { Total = TotalWorkers(body, unknowns), InUse = faction is null ? null : inUse },
+            Workers = new Workers { Total = roster.Total, InUse = faction is null ? null : inUse },
+            Comrades = roster.List,
             Missions = missions,
             CampLevel = campLevel,
             AvailableMissions = Available(faction, missions, sublevels, subBlock is not null, facts, unknowns),
@@ -413,16 +418,16 @@ public sealed class SaveSource : ISource
     /// Dispatchable comrades: human comrades (character name NHM_/NHW_/NDM_/NOM_) who have a camp spawn position,
     /// except Marius. Matched the game's "Comrades Found: 37" name for name on 2026-11-11 (one save).
     /// </summary>
-    int? TotalWorkers(SaveBody body, List<string> unknowns)
+    (int? Total, List<Comrade>? List) Roster(SaveBody body, Dictionary<long, Mission> assignedTo, List<string> unknowns)
     {
-        if (_catalogue is null) return null;
+        if (_catalogue is null) return (null, null);
         var clan = body.Decode("MercenaryClanSaveData");
         if (clan is null)
         {
             unknowns.Add("MercenaryClanSaveData missing: workers.total unknown");
-            return null;
+            return (null, null);
         }
-        int total = 0;
+        var list = new List<Comrade>();
         foreach (var merc in List(clan, "_mercenaryDataList"))
         {
             if (Long(merc, "_characterKey") is not long ck) continue;
@@ -430,12 +435,24 @@ public sealed class SaveSource : ISource
             if (name is null)
             {
                 unknowns.Add($"character {ck} not in game data: workers.total unknown");
-                return null;
+                return (null, null);
             }
             bool human = name.StartsWith("NHM_") || name.StartsWith("NHW_") || name.StartsWith("NDM_") || name.StartsWith("NOM_");
-            if (human && merc.ContainsKey("_spawnPosition") && name != NeverDispatchable) total++;
+            if (!human || !merc.ContainsKey("_spawnPosition") || name == NeverDispatchable) continue;
+            long? no = Long(merc, "_mercenaryNo");
+            var slots = _catalogue.SkillSlots((uint)ck);
+            Mission? on = no is long n && assignedTo.TryGetValue(n, out var m) ? m : null;
+            list.Add(new Comrade
+            {
+                Name = _catalogue.CharacterDisplayName((uint)ck) ?? name,
+                CharacterKey = ck,
+                MercenaryNo = no,
+                Slots = slots?.Select(k => _catalogue.Skill(k) is CampSkill cs ? new ComradeSkill(cs.Type, cs.Tier, cs.Percent) : null).ToList(),
+                MissionName = on is null ? null : on.Location is null ? on.Type ?? on.Name : $"{on.Location}: {on.Type}",
+                OperationKey = on?.OperationKey,
+            });
         }
-        return total;
+        return (list.Count, list.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase).ToList());
     }
 
     static Reserves Zero() => new() { Food = 0, Funds = 0, Stone = 0, Timber = 0, Armaments = 0 };

@@ -102,6 +102,14 @@ public sealed class DashboardServer : IDisposable
                 SendJson(ctx, view);
                 return;
             }
+            case "/api/simulate":
+            {
+                double hpd = double.TryParse(req.QueryString["hoursPerDay"], NumberStyles.Float, CultureInfo.InvariantCulture, out var h) ? h : Calc.DefaultHoursPerDay;
+                var stop = (req.QueryString["stop"] ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(x => long.TryParse(x, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : -1).Where(v => v >= 0).ToHashSet();
+                SendJson(ctx, DashboardView.Simulate(_log.Current(), ParseAdd(req.QueryString["add"]), stop, hpd));
+                return;
+            }
             case "/api/plan":
             {
                 long Q(string k) => long.TryParse(req.QueryString[k], NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) && v >= 0 ? v : 0;
@@ -115,6 +123,23 @@ public sealed class DashboardServer : IDisposable
         if (asset is null) { Send(ctx, 404, "text/plain", Encoding.UTF8.GetBytes("not found")); return; }
         ctx.Response.Headers["Cache-Control"] = "no-cache";
         Send(ctx, 200, ContentType(file), asset);
+    }
+
+    /// <summary>"op:ck.ck,op:ck" -> planned missions with chosen comrades. Bad parts are ignored. At most 40 missions.</summary>
+    public static List<DashboardView.PlanAdd> ParseAdd(string? s)
+    {
+        var result = new List<DashboardView.PlanAdd>();
+        foreach (var part in (s ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).Take(40))
+        {
+            var bits = part.Split(':');
+            if (!long.TryParse(bits[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out long op)) continue;
+            var cks = bits.Length > 1
+                ? bits[1].Split('.', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(x => long.TryParse(x, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : -1).Where(v => v >= 0).Take(30).ToList()
+                : new List<long>();
+            result.Add(new DashboardView.PlanAdd(op, cks));
+        }
+        return result;
     }
 
     static readonly Dictionary<string, byte[]> Assets = new();

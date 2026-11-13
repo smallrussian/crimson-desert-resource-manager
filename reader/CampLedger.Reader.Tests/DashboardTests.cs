@@ -172,4 +172,93 @@ public class DashboardTests
         Assert.Null(DashboardServer.Asset("../CampLedgerReader.dll"));
         Assert.Contains("Camp Ledger", Encoding.UTF8.GetString(DashboardServer.Asset("index.html")!));
     }
+
+    // ---- comrades and what-if plans ----
+
+    static Comrade Roster(string name, long key, long? op, params (string Type, int Tier, int Pct)?[] slots) => new()
+    {
+        Name = name, CharacterKey = key, OperationKey = op, MissionName = op is null ? null : "Glenbright Farm: Simple Farming",
+        Slots = slots.Select(s => s is null ? null : new ComradeSkill(s.Value.Type, s.Value.Tier, s.Value.Pct)).ToList(),
+    };
+
+    static SnapshotLog.State PlanState()
+    {
+        var g = Glenbright();
+        g.OperationKey = 3624579346;
+        var save = Save(T0, g, Pond());
+        save.AvailableMissions[0].OperationKey = 856813139;
+        save.AvailableMissions[0].Bonus!.SkillType = "Ranching";
+        save.AvailableMissions[0].Reward = R(food: 3500);
+        var roster = new List<Comrade>
+        {
+            Roster("Evelyn", 1002973, 3624579346, ("Farming", 1, 10), ("Foodprocessing", 1, 10), ("Farming", 2, 30), ("Foodprocessing", 2, 30), ("Farming", 3, 60)),
+            Roster("Ashton", 574, null, ("Ranching", 1, 10), ("Weaving", 1, 10), ("Ranching", 2, 30), ("Foodprocessing", 1, 10), ("Ranching", 3, 60)),
+            Roster("Aldric", 660, null, ("Building", 1, 0), ("Crafting", 1, 10), null, ("Crafting", 2, 30), null),
+            Roster("Anders", 655, null), Roster("Brennan", 1002983, null), Roster("Devan", 1002435, null),
+        };
+        var withRoster = new Snapshot
+        {
+            CapturedAt = save.CapturedAt, Source = "save", CampLevel = 4, Reserves = save.Reserves, Workers = save.Workers,
+            Missions = save.Missions, AvailableMissions = save.AvailableMissions, Comrades = roster,
+        };
+        var state = new SnapshotLog.State();
+        SnapshotLog.Add(state, withRoster);
+        return state;
+    }
+
+    [Fact]
+    public void Comrade_slots_unlock_up_to_the_camp_level()
+    {
+        var v = DashboardView.Build(PlanState(), 24, false);
+        var evelyn = v.Comrades.Single(c => c.Name == "Evelyn");
+        Assert.True(evelyn.Busy);
+        Assert.Equal(new[] { true, true, true, true, false }, evelyn.Slots!.Select(s => s!.Unlocked));
+        Assert.Null(v.Comrades.Single(c => c.Name == "Aldric").Slots![2]);
+        Assert.False(v.Comrades.Single(c => c.Name == "Ashton").Busy);
+    }
+
+    [Fact]
+    public void Plan_adds_a_mission_with_chosen_comrades_and_their_bonus()
+    {
+        var add = new[] { new DashboardView.PlanAdd(856813139, new List<long> { 574, 660, 655, 1002983, 1002435 }) };
+        var sim = DashboardView.Simulate(PlanState(), add, Array.Empty<long>(), 24);
+        var a = sim.Added.Single();
+        Assert.Equal(40, a.Bonus!.Skill);              // Ashton: Ranching I + II unlocked = 40
+        Assert.Equal(80, a.Bonus.Total);
+        Assert.Equal(6300, a.Reward!.Food);
+        Assert.Empty(a.Problems);
+        Assert.Equal(10, sim.InUseBefore);
+        Assert.Equal(15, sim.InUseAfter);
+        Assert.Equal(22, sim.FreeAfter);
+        var food = sim.Reserves.Single(r => r.Key == "food");
+        Assert.Equal(1980 / 16.0, food.PerHourBefore!.Value, 6);
+        Assert.Equal(1980 / 16.0 + 6300 / 19.0, food.PerHourAfter!.Value, 6);
+    }
+
+    [Fact]
+    public void Plan_flags_busy_and_missing_comrades_and_frees_stopped_ones()
+    {
+        var state = PlanState();
+        var busy = DashboardView.Simulate(state, new[] { new DashboardView.PlanAdd(856813139, new List<long> { 1002973 }) }, Array.Empty<long>(), 24);
+        var p = busy.Added.Single().Problems;
+        Assert.Contains(p, x => x.Contains("Evelyn is busy"));
+        Assert.Contains(p, x => x.Contains("needs 4 more"));
+        Assert.Equal(5, busy.Added.Single().Workers);   // counted at the minimum
+
+        var stopped = DashboardView.Simulate(state, new[] { new DashboardView.PlanAdd(856813139, new List<long> { 1002973 }) }, new long[] { 3624579346 }, 24);
+        Assert.DoesNotContain(stopped.Added.Single().Problems, x => x.Contains("busy"));
+        Assert.Equal(new[] { "Glenbright Farm" }, stopped.Stopped);
+        Assert.Equal(-3500, stopped.Reserves.Single(r => r.Key == "funds").PerCycleAfter);   // Glenbright gone (-900), Apiary added (-3,500)
+        Assert.Equal(10 - 2 + 5, stopped.InUseAfter);
+    }
+
+    [Fact]
+    public void Plan_query_is_parsed_defensively()
+    {
+        var p = DashboardServer.ParseAdd("856813139:574.660,abc,12:,13:x.5");
+        Assert.Equal(3, p.Count);
+        Assert.Equal(new long[] { 574, 660 }, p[0].Comrades);
+        Assert.Empty(p[1].Comrades);
+        Assert.Equal(new long[] { 5 }, p[2].Comrades);
+    }
 }

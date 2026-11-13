@@ -26,13 +26,25 @@ public static class DashboardView
         string Name, string? Type, string? Location, string? Region, string? Role, string? Category,
         int Workers, int? WorkersMin, int? WorkersMax, double? DurationHours, double? ElapsedHours, double? RemainingHours,
         double? Progress, bool Recurring, Reserves? Cost, Reserves? BaseReward, Reserves? Reward, BonusView? Bonus,
-        List<string> Comrades, Reserves? Net, Dictionary<string, double>? NetPerHour, string? PersonalStorageReward);
+        List<string> Comrades, Reserves? Net, Dictionary<string, double>? NetPerHour, string? PersonalStorageReward, long? OperationKey = null);
 
     public sealed record AvailableView(
         string Name, string? Type, string? Location, string? Region, string? Role, string? Category,
         int? WorkersMin, int? WorkersMax, double? DurationHours, Reserves? Cost, Reserves? BaseReward,
         int? Conversion, string? SkillType, Reserves? MinReward, Dictionary<string, double>? MinNetPerHour,
         string? PersonalStorageReward, List<string>? Unconfirmed, List<string>? Assumptions, long? OperationKey);
+
+    public sealed record SlotView(string Type, int Tier, int Percent, bool Unlocked);
+    public sealed record ComradeView(string Name, long? Key, List<SlotView?>? Slots, string? MissionName, long? OperationKey, bool Busy);
+
+    public sealed record PlanAdd(long OperationKey, List<long> Comrades);
+    public sealed record PlannedView(long OperationKey, string Name, string? Type, int Workers, int? WorkersMin, int? WorkersMax,
+                                     BonusView? Bonus, Reserves? Reward, Dictionary<string, double>? NetPerHour, List<string> Problems);
+    public sealed record SimRow(string Key, long? Balance, long? PerCycleBefore, long? PerCycleAfter, double? PerHourBefore,
+                                double? PerHourAfter, double? PerDayBefore, double? PerDayAfter, double? HoursUntilEmptyAfter);
+    public sealed record Simulation(List<SimRow> Reserves, int? Total, int InUseBefore, int InUseAfter, int? FreeBefore, int? FreeAfter,
+                                    bool? OperatingBudgetOkAfter, List<PlannedView> Added, List<string> Stopped, List<string> Problems,
+                                    double HoursPerDay);
 
     public sealed record HistoryPoint(DateTimeOffset T, string Source, long? Food, long? Funds, long? Stone, long? Timber, long? Armaments);
 
@@ -43,7 +55,7 @@ public static class DashboardView
 
     public sealed record View(
         Status Status, List<ReserveRow> Reserves, bool? OperatingBudgetOk, double HoursPerDay, WorkersView Workers,
-        List<RunningView> Running, List<AvailableView> Available, List<HistoryPoint> History,
+        List<RunningView> Running, List<AvailableView> Available, List<ComradeView> Comrades, List<HistoryPoint> History,
         List<string> PortfolioUnknowns, List<string> Unknowns, double RealSecondsPerGameHour);
 
     public sealed record AffordView(string Kind, double? Hours);
@@ -83,6 +95,7 @@ public static class DashboardView
             new WorkersView(w.Total, w.InUse, w.Free, w.State?.ToString()),
             running,
             (save?.AvailableMissions ?? new()).Select(AvailableOf).ToList(),
+            (save?.Comrades ?? new()).Select(c => ComradeOf(c, campLevel)).ToList(),
             Downsample(log.History, maxHistory),
             portfolio.Unknowns.ToList(),
             unknowns,
@@ -145,8 +158,86 @@ public static class DashboardView
             m.Repeat == true, m.Cost, m.Reward, Res(reward),
             b is null ? null : new BonusView(b.Conversion, b.Skill, b.Comrade, b.Total, m.Bonus?.SkillType),
             m.Bonus?.Comrades?.Select(c => c.Name ?? "?").ToList() ?? new List<string>(),
-            Res(Calc.Net(line)), PerHour(Calc.NetPerHour(line)), m.PersonalStorageReward);
+            Res(Calc.Net(line)), PerHour(Calc.NetPerHour(line)), m.PersonalStorageReward, m.OperationKey);
     }
+
+    /// <summary>Slots up to the camp level are unlocked (docs/re-notes/comrade-bonuses.md).</summary>
+    public static ComradeView ComradeOf(Comrade c, int? campLevel) => new(
+        c.Name ?? "?", c.CharacterKey,
+        c.Slots?.Select((s, i) => s is null ? null : new SlotView(s.Type, s.Tier, s.Percent, campLevel is int lv && i < lv)).ToList(),
+        c.MissionName, c.OperationKey, c.OperationKey is not null);
+
+    static ComradeSlots SlotsOf(Comrade c) =>
+        new(c.Name, (c.Slots ?? new()).Select(s => s is null ? null : new CoreSlot(s.Type, s.Percent)).ToList());
+
+    /// <summary>
+    /// What-if: the running repeating missions, minus <paramref name="stop"/>, plus available missions with chosen
+    /// comrades. Rewards use the calc core's bonus rules with the chosen comrades' slots. A mission given fewer than
+    /// its minimum is counted at the minimum, as if the rest had no matching skill, and flagged.
+    /// </summary>
+    public static Simulation Simulate(SnapshotLog.State log, IReadOnlyList<PlanAdd> add, IReadOnlyCollection<long> stop, double hoursPerDay)
+    {
+        if (hoursPerDay <= 0 || double.IsNaN(hoursPerDay) || hoursPerDay > 24) hoursPerDay = Calc.DefaultHoursPerDay;
+        var save = log.LatestSave;
+        int? campLevel = save?.CampLevel;
+        var balance = Balance(Newer(log.LatestSave, log.LatestProcess)?.Reserves ?? new Reserves());
+        var running = (save?.Missions ?? new()).Select(m => RunningOf(m, campLevel)).ToList();
+        var roster = (save?.Comrades ?? new()).Where(c => c.CharacterKey is not null)
+                     .GroupBy(c => c.CharacterKey!.Value).ToDictionary(g => g.Key, g => g.First());
+        var problems = new List<string>();
+
+        var before = running.Where(r => r.Recurring).Select(LineOf).ToList();
+        var stopped = running.Where(r => r.OperationKey is long k && stop.Contains(k)).ToList();
+        var after = running.Where(r => r.Recurring && !stopped.Contains(r)).Select(LineOf).ToList();
+
+        var used = new HashSet<long>();
+        var added = new List<PlannedView>();
+        int addedWorkers = 0;
+        foreach (var a in add)
+        {
+            var m = save?.AvailableMissions.FirstOrDefault(x => x.OperationKey == a.OperationKey);
+            if (m is null) { problems.Add($"mission {a.OperationKey} is no longer available"); continue; }
+            var own = new List<string>();
+            var chosen = new List<Comrade>();
+            foreach (long ck in a.Comrades.Distinct())
+            {
+                if (!roster.TryGetValue(ck, out var c)) { own.Add($"comrade {ck} not found"); continue; }
+                if (!used.Add(ck)) { own.Add($"{c.Name} is already picked for another planned mission"); continue; }
+                if (c.OperationKey is long busy && !stop.Contains(busy)) own.Add($"{c.Name} is busy on {c.MissionName}");
+                if (c.Slots is null) own.Add($"{c.Name}: skill slots unknown");
+                chosen.Add(c);
+            }
+            int min = m.WorkersMin ?? chosen.Count, max = m.WorkersMax ?? int.MaxValue;
+            if (chosen.Count < min)
+                own.Add($"needs {min - chosen.Count} more comrade{(min - chosen.Count == 1 ? "" : "s")}; counted as {min} with no matching skill");
+            if (chosen.Count > max) own.Add($"takes at most {max} comrades");
+            int workers = Math.Max(chosen.Count, min);
+            addedWorkers += workers;
+            BonusBreakdown? b = null;
+            if (m.Bonus is { } mb)
+                b = Bonus.Of(new BonusInputs(mb.ConversionPercent, mb.SkillType,
+                    chosen.Any(c => c.Slots is null) ? null : chosen.Select(SlotsOf).ToList(), workers, m.WorkersMin), campLevel);
+            var baseReward = Set(m.Reward);
+            var reward = AllZero(baseReward) ? baseReward : Bonus.Apply(baseReward, b?.Total);
+            var line = new MissionLine(m.Name ?? "", true, workers, m.DurationHours, Set(m.Cost), reward);
+            after.Add(line);
+            added.Add(new PlannedView(a.OperationKey, m.Location ?? m.Name ?? "?", m.Type, workers, m.WorkersMin, m.WorkersMax,
+                b is null ? null : new BonusView(b.Conversion, b.Skill, b.Comrade, b.Total, m.Bonus?.SkillType),
+                Res(reward), PerHour(Calc.NetPerHour(line)), own));
+        }
+
+        var pb = Calc.PortfolioOf(before, balance, hoursPerDay);
+        var pa = Calc.PortfolioOf(after, balance, hoursPerDay);
+        int inUseBefore = running.Sum(r => r.Workers);
+        int inUseAfter = inUseBefore - stopped.Sum(r => r.Workers) + addedWorkers;
+        int? total = save?.Workers.Total;
+        if (total is int t && inUseAfter > t) problems.Add($"the plan needs {inUseAfter} comrades; you have {t}");
+        var rows = ReserveSet<long?>.All.Select(r => new SimRow(Key(r), balance[r], pb.NetPerCycle[r], pa.NetPerCycle[r],
+            pb.NetPerHour[r], pa.NetPerHour[r], pb.NetPerDay[r], pa.NetPerDay[r], pa.HoursUntilEmpty[r])).ToList();
+        return new Simulation(rows, total, inUseBefore, inUseAfter, total - inUseBefore, total - inUseAfter, pa.OperatingBudgetOk,
+            added, stopped.Select(r => r.Location ?? r.Name).ToList(), problems, hoursPerDay);
+    }
+
 
     /// <summary>
     /// An available mission. Its minimum reward uses the conversion bonus only: skill and comrade bonuses depend on

@@ -232,3 +232,64 @@ th:first-child, td:first-child { text-align: left; }
 }
 .c-meta { display: none; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* ---- comrades ---- */
+.comrade-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); }
+.comrade .state { font-size: .82rem; }
+.state.free { color: var(--pos); }
+.state.busy { color: var(--muted); }
+.slots { display: flex; flex-direction: column; gap: 4px; }
+.slot { display: flex; align-items: center; gap: 8px; font-size: .86rem; padding: 4px 8px; border-radius: 6px; background: var(--bg-2); border: 1px solid var(--line-soft); }
+.slot .n { color: var(--dim); font-size: .72rem; width: 12px; }
+.slot .pct { margin-left: auto; color: var(--gold); font-weight: 600; }
+.slot.locked { opacity: .45; }
+.slot.locked .pct::after { content: " 🔒"; font-size: .75rem; }
+.slot.gate .pct { color: var(--muted); font-weight: 400; font-size: .78rem; }
+.slot.hit { border-color: var(--gold-soft); }
+.slot.none { color: var(--dim); font-style: italic; }
+
+/* ---- plan ---- */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; min-height: 32px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--gold-soft); background: rgba(201,164,92,.08); color: var(--gold); font-size: .85rem; white-space: nowrap;
+}
+.btn:hover { background: rgba(201,164,92,.18); }
+.btn.on { background: var(--gold); color: var(--bg); }
+.btn.danger { border-color: var(--crimson); color: #f0b2ab; background: rgba(163,36,42,.10); }
+.btn.danger.on { background: var(--crimson); color: var(--text); }
+.btn.ghost { border-color: var(--line); color: var(--muted); background: none; }
+.btn.small { min-height: 26px; padding: 2px 9px; font-size: .78rem; }
+.row .c-add { display: flex; justify-content: flex-end; }
+.row { grid-template-columns: minmax(180px, 2.2fr) 70px 60px minmax(110px, 1.3fr) minmax(110px, 1.3fr) minmax(110px, 1fr) 84px 18px; }
+.card-foot { display: flex; justify-content: flex-end; }
+.card.stopping { border-color: var(--crimson); opacity: .75; }
+
+.effect td.chg { font-weight: 600; }
+.plan-grid { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 1100px) { .plan-grid { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); align-items: start; } }
+.planned { padding: 14px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--line); display: grid; gap: 10px; }
+.planned .crew { display: flex; flex-wrap: wrap; gap: 6px; }
+.pick { display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px 4px 10px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--gold-soft); font-size: .84rem; }
+.pick button { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0 4px; font-size: 1rem; line-height: 1; }
+.pick button:hover { color: var(--neg); }
+.picker { display: flex; flex-wrap: wrap; gap: 6px; max-height: 168px; overflow: auto; padding: 2px; }
+.cand { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg-2); color: var(--text); cursor: pointer; font-size: .82rem; }
+.cand:hover { border-color: var(--gold-soft); }
+.cand b { color: var(--gold); font-weight: 600; }
+.cand .z { color: var(--dim); }
+.problems { margin: 0; padding-left: 18px; color: var(--warn); font-size: .86rem; }
+.stat-line { display: flex; flex-wrap: wrap; gap: 14px; align-items: baseline; margin: 6px 0 12px; }
+.big { font-size: 1.25rem; font-weight: 600; }
+
+.plan-bar {
+  position: sticky; bottom: 0; z-index: 15; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin: 0 clamp(16px, 3vw, 32px) 12px; padding: 10px 14px; border-radius: var(--r);
+  background: rgba(34,27,23,.97); border: 1px solid var(--gold-soft); box-shadow: 0 -6px 24px rgba(0,0,0,.5);
+}
+.plan-bar .t { font-family: var(--serif); color: var(--gold); text-transform: uppercase; letter-spacing: .1em; }
+.plan-bar .d { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: .88rem; }
+.plan-bar .btn { margin-left: auto; }
+@media (max-width: 760px) {
+  .row .c-add { grid-area: add; }
+  .row { grid-template-areas: "nm net" "meta add"; }
+}
