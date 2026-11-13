@@ -43,7 +43,8 @@ state identifiers and a plain list of what could not be read; no user data.
 
 ## Undecided
 
-Sync client, web app, hosting, auth provider, and the typed API contract.
+A hosted web app, sync client, hosting and auth provider: set aside by the local dashboard decision below.
+They come back only if cloud sync is wanted later.
 
 ## Game data in the reader (2026-11-12)
 
@@ -112,9 +113,43 @@ all reference it and share types. Tests: `core/CampLedger.Core.Tests` (xUnit), r
 
 **Why.** One language with the reader; nothing written twice; the owner already debugs this code.
 
-**Still undecided:** hosting and auth provider (ask the owner before milestone 4).
+**Superseded for now:** the hosted web app (milestones 4-5) is replaced by the local dashboard below.
 
 **Definitions** are copied from the owner's Google Sheet (tabs Missions, Portfolio, Upgrade Planner), read
 2026-11-12. One deliberate difference: the sheet treats a mission with a blank duration as 0 per hour, which
 quietly drops it from the per-hour totals. AGENTS.md says a missing duration means unknown, so the core
 returns null for any reserve that such an active mission changes, and names the mission.
+
+## Local dashboard instead of a hosted web app (decided 2026-11-12)
+
+**Decision.** The owner wants something easy for people downloading from Nexus Mods. The reader serves the
+dashboard itself at `http://localhost:5240` (this PC only). No accounts, no hosting, no data leaving the PC.
+This replaces milestones 4 (web app with accounts) and 5 (device login and sync) for now; cloud sync can be
+added later on top of the same snapshot log if wanted.
+
+**Why.** One download for users; no server cost or upkeep; works offline; reuses the reader, the calc core and
+the snapshot log. A browser page is less UI code than WPF/WinUI and also works on a phone if the owner later
+opts in to serving on the home network (not done: it listens on localhost only).
+
+**How it works.**
+- `CampLedgerReader watch` (started by the launcher ASI with the game) also serves the dashboard.
+  `CampLedgerReader dashboard` serves it without the game (e.g. after it closed) and opens the browser;
+  `--log <file>` points it at another snapshot log, `--no-open` skips the browser.
+- `DashboardServer` (System.Net.HttpListener, part of .NET, no new dependency): GET only, refuses any Host
+  header other than `localhost:5240` (DNS rebinding) and sends a strict Content-Security-Policy. Page files are
+  embedded in the exe (`reader/CampLedger.Reader/dashboard/`), so nothing can be served from disk.
+  `GET /api/state?hoursPerDay=` (with ETag, polled every 3 s) and `GET /api/plan?food=&funds=...`.
+- `SnapshotLog` follows `snapshots.jsonl`, reading only new bytes. `DashboardView` (pure, tested) builds what
+  the page shows with the calc core: reserve balances (live memory when newer than the save), per cycle /
+  hour / day, hours until empty, workers, running missions with bonus-included rewards, available missions,
+  upgrade planner, history.
+- **Which missions count toward the totals:** repeating missions (save `_operationShouldRepeat`). One-off
+  builds are shown under Construction and count as busy comrades, but stay out of the per-hour totals, like
+  the owner's sheet. A base reward of all zeros stays zero whatever the bonus (so an unknown bonus on a build
+  does not make it unknown).
+- **Available missions** show a minimum reward: base plus the region's conversion bonus. Skill and comrade
+  bonuses depend on who is sent and can only add.
+- Real-time estimates ("about 42 min real") use 250 real seconds per in-game hour, measured once
+  (`mission-static-data.md`); labelled as approximate.
+- Page: plain HTML/CSS/JS, no framework or CDN (fast, offline). Dark crimson-and-gold theme, serif headings
+  (Windows' Palatino Linotype), tabular numbers, keyboard shortcuts 1-4 and `/`, responsive down to phone width.

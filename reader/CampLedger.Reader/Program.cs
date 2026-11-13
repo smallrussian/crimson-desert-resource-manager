@@ -8,7 +8,9 @@ namespace CampLedger.Reader;
 /// Camp Ledger reader. Read-only toward the game: it never writes to the game's process, saves or install.
 ///
 ///   CampLedgerReader snapshot [save file]   print one snapshot as JSON
-///   CampLedgerReader watch [--stay]         wait for the game, emit snapshots while it runs, exit when it closes
+///   CampLedgerReader watch [--stay]         wait for the game, emit snapshots while it runs, exit when it closes;
+///                                           also serves the dashboard at http://localhost:5240
+///   CampLedgerReader dashboard              serve the dashboard from the snapshot log and open it in the browser
 ///   (started automatically by the launcher ASI in the game folder; see launcher/)
 /// </summary>
 public static class Program
@@ -40,6 +42,11 @@ public static class Program
                 }
                 return Watch(stay: args.Contains("--stay"));
             }
+            case "dashboard":
+            {
+                int at = Array.IndexOf(args, "--log");
+                return DashboardOnly(open: !args.Contains("--no-open"), logFile: at > 0 && at + 1 < args.Length ? args[at + 1] : null);
+            }
             case "memory":
             {
                 // One-shot live read, for checking a memory layout against what the game shows.
@@ -55,7 +62,7 @@ public static class Program
                 return r is null ? 1 : 0;
             }
             default:
-                Console.Error.WriteLine("usage: CampLedgerReader snapshot [save file] | watch [--stay] | memory");
+                Console.Error.WriteLine("usage: CampLedgerReader snapshot [save file] | watch [--stay] | dashboard [--no-open] [--log file] | memory");
                 return 2;
         }
     }
@@ -75,16 +82,50 @@ public static class Program
         return 1;
     }
 
-    static int Watch(bool stay)
+    static string DataDir()
     {
         string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CampLedger");
         Directory.CreateDirectory(dir);
-        string outFile = Path.Combine(dir, "snapshots.jsonl");
+        return dir;
+    }
+
+    /// <summary>Serves the dashboard without watching the game (e.g. after the game closed). Opens the browser.</summary>
+    static int DashboardOnly(bool open, string? logFile)
+    {
+        var log = new SnapshotLog(logFile ?? Path.Combine(DataDir(), "snapshots.jsonl"));
+        using var server = new DashboardServer(log, () => { using var g = FindGame(); return g is not null; }, Log);
+        bool mine = server.Start();
+        string url = $"http://localhost:{DashboardServer.DefaultPort}/";
+        if (open) OpenBrowser(url);
+        if (!mine)
+        {
+            Console.WriteLine($"the dashboard is already being served (by the watcher?): {url}");
+            return 0;
+        }
+        Console.WriteLine($"Camp Ledger dashboard: {url}  (close this window to stop)");
+        Thread.Sleep(Timeout.Infinite);
+        return 0;
+    }
+
+    static void OpenBrowser(string url)
+    {
+        try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true })?.Dispose(); }
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { Log("could not open the browser: " + e.Message); }
+    }
+
+    static volatile bool _gameSeen;
+
+    static int Watch(bool stay)
+    {
+        string outFile = Path.Combine(DataDir(), "snapshots.jsonl");
         Log($"snapshots go to {outFile}");
+        using var dashboard = new DashboardServer(new SnapshotLog(outFile), () => _gameSeen, Log);
+        dashboard.Start();
 
         while (true)
         {
             Process? game = FindGame();
+            _gameSeen = game is not null;
             if (game is null)
             {
                 Thread.Sleep(TimeSpan.FromSeconds(5));
@@ -166,6 +207,7 @@ public static class Program
                 game.WaitForExit(5000);
             }
 
+            _gameSeen = false;
             Log("game closed");
             game.Dispose();
             if (!stay) return 0;

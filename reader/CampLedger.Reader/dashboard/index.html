@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Camp Ledger</title>
+<meta name="description" content="Greymane Camp reserves, missions and net gain, read from your Crimson Desert game.">
+<link rel="icon" href="crest.svg" type="image/svg+xml">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <img src="crest.svg" alt="" class="crest" width="40" height="40">
+    <div>
+      <h1>Camp Ledger</h1>
+      <div class="sub">Greymane Camp</div>
+    </div>
+  </div>
+  <div class="meta">
+    <span id="status" class="pill" role="status" aria-live="polite">Connecting…</span>
+    <span id="camp" class="pill gold" hidden></span>
+    <span id="crew" class="pill" hidden></span>
+    <button id="settingsBtn" class="icon-btn" aria-haspopup="dialog" aria-expanded="false" title="Settings">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm8.4 4.6.1-1.1-.1-1.1 2-1.6-2-3.4-2.4.9a8 8 0 0 0-1.9-1.1L15.7 2h-3.9l-.4 2.6c-.7.3-1.3.6-1.9 1.1L7 4.8 5 8.2l2 1.6-.1 1.1.1 1.1-2 1.6 2 3.4 2.4-.9c.6.5 1.2.8 1.9 1.1l.4 2.6h3.9l.4-2.6c.7-.3 1.3-.6 1.9-1.1l2.4.9 2-3.4-2-1.4Z"/></svg>
+      <span class="sr">Settings</span>
+    </button>
+  </div>
+  <div id="settings" class="popover" role="dialog" aria-label="Settings" hidden>
+    <label class="field">
+      <span>Hours played per day</span>
+      <input id="hpd" type="number" min="1" max="24" step="0.5" inputmode="decimal">
+    </label>
+    <p class="hint">Used only for the "per day" figures. It is an assumption, not read from the game.</p>
+  </div>
+</header>
+
+<div id="banner" class="banner" hidden></div>
+
+<section id="reserves" class="reserves" aria-label="Reserves"></section>
+
+<nav class="tabs" role="tablist" aria-label="Views">
+  <button role="tab" id="tab-missions" aria-controls="view-missions" aria-selected="true">Missions</button>
+  <button role="tab" id="tab-available" aria-controls="view-available" aria-selected="false">Available <span id="availCount" class="count"></span></button>
+  <button role="tab" id="tab-planner" aria-controls="view-planner" aria-selected="false">Planner</button>
+  <button role="tab" id="tab-history" aria-controls="view-history" aria-selected="false">History</button>
+</nav>
+
+<main>
+  <section id="view-missions" role="tabpanel" aria-labelledby="tab-missions"></section>
+
+  <section id="view-available" role="tabpanel" aria-labelledby="tab-available" hidden>
+    <div class="toolbar">
+      <input id="q" type="search" placeholder="Search missions or places" aria-label="Search">
+      <select id="region" aria-label="Region"><option value="">All regions</option></select>
+      <div class="chips" id="roleChips" role="group" aria-label="Produces"></div>
+      <label class="toggle"><input id="fits" type="checkbox"> <span>Fits free comrades</span></label>
+      <select id="sort" aria-label="Sort">
+        <option value="net">Best net / hour</option>
+        <option value="dur">Shortest</option>
+        <option value="workers">Fewest comrades</option>
+        <option value="name">Name</option>
+      </select>
+    </div>
+    <div id="availList" class="list"></div>
+  </section>
+
+  <section id="view-planner" role="tabpanel" aria-labelledby="tab-planner" hidden>
+    <div class="panel">
+      <h2>Upgrade planner</h2>
+      <p class="hint">Enter what the upgrade costs. "Need" adds one cycle of your running missions' costs, as in your sheet.</p>
+      <div id="planInputs" class="plan-inputs"></div>
+      <div id="planOut"></div>
+    </div>
+  </section>
+
+  <section id="view-history" role="tabpanel" aria-labelledby="tab-history" hidden>
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Reserves over time</h2>
+        <div class="chips" id="histChips" role="group" aria-label="Reserve"></div>
+      </div>
+      <div id="chart" class="chart"></div>
+      <p class="hint">Each point is a snapshot: from game memory while you play, or from a save. Real time on the axis.</p>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <details id="unknowns"><summary>What couldn't be read</summary><ul></ul></details>
+  <p>Read-only: nothing is written to the game, and nothing leaves this PC.</p>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

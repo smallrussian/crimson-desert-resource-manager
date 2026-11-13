@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#b0262c"/>
+      <stop offset="1" stop-color="#5e1216"/>
+    </linearGradient>
+  </defs>
+  <path d="M32 3 56 11v20c0 15-10.5 25-24 30C18.5 56 8 46 8 31V11Z" fill="url(#g)" stroke="#c9a45c" stroke-width="2.5"/>
+  <path d="M32 9 51 15.5v15.3c0 11.7-8 19.9-19 24.3-11-4.4-19-12.6-19-24.3V15.5Z" fill="none" stroke="#c9a45c" stroke-opacity=".45" stroke-width="1"/>
+  <!-- wolf head, howling -->
+  <path d="M22 44c1-6 3-10 6-13l-2-9 6 6 3-1 7-9-1 9c2 2 3 5 3 8l-3 2-2-1-1 4c-2 2-5 3-8 3l-2 2Z" fill="#ece2cf"/>
+  <circle cx="35.5" cy="29.5" r="1.2" fill="#5e1216"/>
+</svg>
