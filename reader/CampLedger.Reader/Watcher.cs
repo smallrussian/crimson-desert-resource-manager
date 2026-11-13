@@ -47,7 +47,8 @@ public static class ReaderHost
     {
         string? install = GameInstall.Find(game);
         if (install is null) return (null, "game install folder not found");
-        var layout = GameDataLayout.TryLoad(GameVersion.Detect(game), out string? layoutProblem);
+        // Not running (e.g. the app catching up from the last save): the install folder has the same version stamp.
+        var layout = GameDataLayout.TryLoad(GameVersion.Detect(game) ?? GameVersion.FromInstall(install), out string? layoutProblem);
         if (layout is null) return (null, layoutProblem);
         try
         {
@@ -86,6 +87,39 @@ public sealed class Watcher
 
     /// <summary>Raised on the watcher's thread after the game closes.</summary>
     public event Action? GameClosed;
+
+    /// <summary>
+    /// With the game closed: if the newest save was written after the last save snapshot in the log (e.g. the game
+    /// was played without the reader), read it once (from a copy, as always) and append it, so the dashboard shows
+    /// the latest saved values. Only the process that holds <see cref="ReaderHost.WatchMutexName"/> may call this.
+    /// </summary>
+    public bool CatchUpFromSave(Snapshot? lastSave)
+    {
+        if (ReaderHost.GameRunning()) return false;
+        string? install = GameInstall.Find(null);
+        string? version = GameVersion.FromInstall(install);
+        var probe = new SaveSource(gameVersion: version);
+        var newest = probe.NewestSave();
+        if (newest is null || !NeedsCatchUp(newest.LastWriteTimeUtc, lastSave)) return false;
+
+        var (catalogue, problem) = ReaderHost.LoadCatalogue(null);
+        var save = new SaveSource(gameVersion: version, catalogue: catalogue, catalogueProblem: problem);
+        switch (save.ReadFile(newest.FullName))
+        {
+            case SourceResult.Ok ok:
+                ReaderHost.Log($"caught up from a save written {newest.LastWriteTime:yyyy-MM-dd HH:mm} (game not running)");
+                Write(ok.Snapshot);
+                return true;
+            case SourceResult.Unavailable u:
+                ReaderHost.Log("could not catch up from the newest save: " + u.Reason);
+                return false;
+        }
+        return false;
+    }
+
+    /// <summary>True when a save written at <paramref name="saveWrittenUtc"/> is newer than what the log holds.</summary>
+    public static bool NeedsCatchUp(DateTime saveWrittenUtc, Snapshot? lastSave) =>
+        lastSave is null || saveWrittenUtc > lastSave.CapturedAt.UtcDateTime;
 
     public int Run(bool stay, CancellationToken ct = default)
     {

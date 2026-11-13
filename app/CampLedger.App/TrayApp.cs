@@ -25,7 +25,7 @@ sealed class TrayApp : ApplicationContext
 
     public TrayApp(bool startHidden)
     {
-        _ui.CreateControl();   // a handle to marshal background events onto the UI thread
+        _ = _ui.Handle;   // force a handle to marshal background events onto the UI thread
 
         // One recorder at a time: if the console reader is already watching, just show its dashboard.
         _watchLock = new Mutex(initiallyOwned: true, ReaderHost.WatchMutexName, out bool ownsWatch);
@@ -36,7 +36,13 @@ sealed class TrayApp : ApplicationContext
             _watcher.GameClosed += () => _ui.BeginInvoke(OnGameClosed);
             _watchThread = new Thread(() =>
             {
-                try { _watcher.Run(stay: true, _stop.Token); }
+                try
+                {
+                    // Values saved while the reader was not running (game played without the launcher).
+                    if (_watcher.CatchUpFromSave(new SnapshotLog(ReaderHost.SnapshotFile).Current().LatestSave))
+                        _ui.BeginInvoke(UpdateStatus);
+                    _watcher.Run(stay: true, _stop.Token);
+                }
                 catch (Exception e) { ReaderHost.Log("watcher stopped: " + e); }
             }) { IsBackground = true, Name = "watcher" };
             _watchThread.Start();
@@ -111,7 +117,13 @@ sealed class TrayApp : ApplicationContext
 
     void OnWindowClosing(object? sender, FormClosingEventArgs e)
     {
-        if (_exiting || e.CloseReason != CloseReason.UserClosing) return;
+        if (_exiting) return;
+        if (e.CloseReason != CloseReason.UserClosing)
+        {
+            // Task Manager, Windows shutdown or another program closing us: quit properly, not into the tray.
+            _ui.BeginInvoke(Exit);
+            return;
+        }
         if (GameRunning() && _watcher is not null)
         {
             // Keep recording in the tray while the game runs.
@@ -126,10 +138,8 @@ sealed class TrayApp : ApplicationContext
             return;
         }
         e.Cancel = true;
-        BeginExitAfterClose();
+        _ui.BeginInvoke(Exit);
     }
-
-    void BeginExitAfterClose() => _ui.BeginInvoke(Exit);
 
     void ToggleStartWithGame()
     {
