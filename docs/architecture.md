@@ -84,3 +84,19 @@ Fixed the same evening: a failed read is retried, and the reader now logs to
 `%LOCALAPPDATA%\CampLedger
 eader.log`. **The fix has not yet been through a real game launch.**
 Also still to confirm: the reader exits when the game closes when started by the launcher.
+
+## Calc core and web app: C# / ASP.NET Core (decided 2026-11-12)
+
+**Decision.** The owner chose C# everywhere. The calc core is `core/CampLedger.Core`, a plain `net8.0` class
+library with no I/O and no dependencies, so the reader, a future sync client and an ASP.NET Core web app can
+all reference it and share types. Tests: `core/CampLedger.Core.Tests` (xUnit), run with
+`dotnet test core/CampLedger.Core.Tests`.
+
+**Why.** One language with the reader; nothing written twice; the owner already debugs this code.
+
+**Still undecided:** hosting and auth provider (ask the owner before milestone 4).
+
+**Definitions** are copied from the owner's Google Sheet (tabs Missions, Portfolio, Upgrade Planner), read
+2026-11-12. One deliberate difference: the sheet treats a mission with a blank duration as 0 per hour, which
+quietly drops it from the per-hour totals. AGENTS.md says a missing duration means unknown, so the core
+returns null for any reserve that such an active mission changes, and names the mission.
