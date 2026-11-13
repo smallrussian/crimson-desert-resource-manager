@@ -323,14 +323,18 @@ public sealed class ConditionEvaluator
                 return Has(v, c, "stage", _facts.CompletedStages, "stage state");
             case "CompleteSubMission":
             {
-                // Sub-mission progress is not decoded. A finished mission has finished its sub-missions; a mission
-                // the save has never recorded has finished none. Anything in between is unknown.
+                // Sub-mission n of mission X is the mission named X_n in missioninfo, with its own entry in the save
+                // (docs/re-notes/available-missions.md). A finished mission has finished its sub-missions; a mission
+                // the save has never recorded has finished none. In between, sub-mission X_n must be completed.
                 if (c.Args.Count != 2) return Unknown(v, $"{c.Text}: unexpected form");
                 if (_facts.CompletedMissions is null || _facts.KnownMissions is null) return Unknown(v, $"{c.Text}: mission state not read");
                 if (_book.KeyOf("mission", c.Args[0]) is not uint mk) return Unknown(v, $"{c.Text}: {c.Args[0]} not in game data");
                 if (_facts.CompletedMissions.Contains(mk)) return Tri.True;
                 if (!_facts.KnownMissions.Contains(mk)) return Tri.False;
-                return Unknown(v, $"{c.Text}: mission in progress, sub-mission progress not decoded");
+                if (!int.TryParse(c.Args[1], out int n) || n < 0) return Unknown(v, $"{c.Text}: unexpected form");
+                if (_book.KeyOf("mission", $"{c.Args[0]}_{n}") is not uint sk)
+                    return Unknown(v, $"{c.Text}: mission in progress, sub-mission {c.Args[0]}_{n} not in game data");
+                return Of(_facts.CompletedMissions.Contains(sk));
             }
             case "GetCurrentSubLevel":
             {

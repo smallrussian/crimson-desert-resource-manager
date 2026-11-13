@@ -455,7 +455,8 @@ public class ReaderTests
         {
             ["gameplayvariable"] = new() { Named((1000005, "BaseCamp_Lv1"), (1000007, "BaseCamp_Lv3"), (1000009, "BaseCamp_Lv5")) },
             ["knowledge"] = new() { Named((1000350, "Knowledge_Node_Her_GlenbrightFarm")) },
-            ["mission"] = new() { Named((1000001, "Mission_Done"), (1000002, "Mission_Started"), (1000003, "Mission_Never")) },
+            ["mission"] = new() { Named((1000001, "Mission_Done"), (1000002, "Mission_Started"), (1000003, "Mission_Never"),
+                (4294965277, "Mission_Started_0"), (4294965276, "Mission_Started_1"), (4294965275, "Mission_Started_2")) },
             ["quest"] = new() { Named((10001, "Quest_Intro")) },
             ["stage"] = new() { Named((1000614, "Intro_Tutorial_I")) },
             ["character"] = new() { Named((1000068, "NHM_Unique_Stone_Flint")) },
@@ -466,8 +467,8 @@ public class ReaderTests
     {
         GamePlayVariables = new() { 1000005, 1000007 },
         Knowledge = new() { 1000350 },
-        CompletedMissions = new() { 1000001 },
-        KnownMissions = new() { 1000001, 1000002 },
+        CompletedMissions = new() { 1000001, 4294965277 },
+        KnownMissions = new() { 1000001, 1000002, 4294965277, 4294965276 },
         CompletedQuests = new() { 10001 },
         CompletedStages = new(),
         Sublevels = new() { ["Contribution_Graymane"] = 12 },
@@ -504,7 +505,10 @@ public class ReaderTests
     [InlineData("GetFactionNodeState(Node_Her_GlenbrightFarm)==Normal", Tri.True)]
     [InlineData("CompleteSubMission(Mission_Done, 1)", Tri.True)]
     [InlineData("CompleteSubMission(Mission_Never, 0)", Tri.False)]
-    [InlineData("CompleteSubMission(Mission_Started, 0)", Tri.Unknown)]
+    [InlineData("CompleteSubMission(Mission_Started, 0)", Tri.True)]      // Mission_Started_0 completed
+    [InlineData("CompleteSubMission(Mission_Started, 1)", Tri.False)]     // Mission_Started_1 in progress
+    [InlineData("CompleteSubMission(Mission_Started, 2)", Tri.False)]     // Mission_Started_2 not reached
+    [InlineData("CompleteSubMission(Mission_Started, 3)", Tri.Unknown)]   // no Mission_Started_3 in game data
     [InlineData("!CheckFactionManagementRent(Faction_Graymane, Node_X, management_x)", Tri.True)]
     [InlineData("CheckGlobalGameEvent(Graymane_Party_Hernandian)", Tri.Unknown)]
     [InlineData("CheckGamePlayVariable(No_Such_Variable)", Tri.Unknown)]
