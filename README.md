@@ -186,12 +186,46 @@ read from your own install at run time and is never written to disk.
 
 ## Credits
 
+Camp Ledger is built on other people's work. Thank you to everyone below.
+
+### Research
+
 The save format work builds on public research by
 [NattKh](https://github.com/NattKh/CRIMSON-DESERT-SAVE-EDITOR-AND-GAME-MODS) and
-[bbfox0703](https://github.com/bbfox0703/crimsonatomtic). Their code was read, not run;
-the decoding here is a fresh implementation. "Start with the game" uses ThirteenAG's
-[Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader). Third-party
-licences are in [installer/THIRD-PARTY-NOTICES.txt](installer/THIRD-PARTY-NOTICES.txt).
+[bbfox0703](https://github.com/bbfox0703/crimsonatomtic). Their code was read, not run; the
+decoding here is a fresh implementation.
+
+### Shipped with the app
+
+These are inside the installer or placed on your PC by it. Their licence texts are in
+[installer/THIRD-PARTY-NOTICES.txt](installer/THIRD-PARTY-NOTICES.txt), installed next to
+the app.
+
+| Software | Used for | By | Licence |
+|---|---|---|---|
+| [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader) v10.0.2 | Loads the launcher so Camp Ledger can start with the game (optional) | ThirteenAG | MIT |
+| [Inno Setup](https://jrsoftware.org/isinfo.php) | The installer, uninstaller and in-app updates | Jordan Russell and Martijn Laan | Inno Setup License |
+| [Microsoft Edge WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) SDK | Shows the dashboard in the app window | Microsoft | BSD-style |
+| [.NET](https://dotnet.microsoft.com/) 8 runtime | Runs the app (bundled, so you don't need to install it) | .NET Foundation and contributors | MIT |
+
+### Used to build and test
+
+| Software | Used for | By | Licence |
+|---|---|---|---|
+| [.NET SDK](https://github.com/dotnet/sdk) | Builds the reader, app and tests | .NET Foundation and contributors | MIT |
+| [Zig](https://ziglang.org/) | Compiles the launcher ASI | Zig Software Foundation | MIT |
+| [xUnit.net](https://xunit.net/) | Test framework | .NET Foundation and contributors | Apache 2.0 |
+| [Microsoft.NET.Test.Sdk](https://github.com/microsoft/vstest) | Test runner | Microsoft | MIT |
+| [GNU Make](https://www.gnu.org/software/make/) | The top-level Makefile | Free Software Foundation | GPL 3.0 |
+| [actions/checkout](https://github.com/actions/checkout), [actions/setup-dotnet](https://github.com/actions/setup-dotnet) | CI and release builds on GitHub Actions | GitHub | MIT |
+| [mlugg/setup-zig](https://github.com/mlugg/setup-zig) | Installs Zig in release builds | mlugg | MIT |
+| [python-lz4](https://github.com/python-lz4/python-lz4) | Research scripts in `tools/re/` | python-lz4 contributors | BSD 3-Clause |
+| [cryptography](https://github.com/pyca/cryptography) | Research scripts in `tools/re/` | Python Cryptographic Authority | Apache 2.0 or BSD 3-Clause |
+
+The reader's own LZ4 decompression and ChaCha20 decryption are written from the public
+specifications of [LZ4](https://github.com/lz4/lz4) (Yann Collet) and
+[ChaCha20](https://datatracker.ietf.org/doc/html/rfc8439) (Daniel J. Bernstein), with no
+library code copied.
 
 ## Disclaimer
 

@@ -37,3 +37,10 @@ shipped with the package (LICENSE.txt in the NuGet package).
 .NET runtime (self-contained)
 https://github.com/dotnet/runtime
 Copyright (c) .NET Foundation and Contributors. MIT License.
+
+------------------------------------------------------------------------------
+Inno Setup (setup and uninstall program)
+https://jrsoftware.org/isinfo.php
+Copyright (C) 1997-2026 Jordan Russell. All rights reserved.
+Portions Copyright (C) 2000-2026 Martijn Laan. All rights reserved.
+Licensed under the Inno Setup License: https://jrsoftware.org/files/is/license.txt
