@@ -10,3 +10,4 @@ __pycache__/
 *.pdb
 *.lib
 installer/out/
+dist/

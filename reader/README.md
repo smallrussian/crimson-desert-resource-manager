@@ -2,7 +2,7 @@
 
 C# / .NET 8. Read-only toward the game. See `docs/architecture.md`.
 
-Build (needs the .NET 8 SDK):
+Build (needs the .NET 8 SDK). From the repo root, `make reader` publishes to `dist/reader/`; or:
 
     dotnet build reader/CampLedger.Reader -c Release
 

@@ -3,7 +3,8 @@
 A native DLL that an ASI loader loads into the game. It starts the external reader and does nothing else:
 no game memory access, no hooks, no saves (AGENTS.md hard rule 1, launcher-only exception).
 
-Build (Zig 0.17, installed with `winget install zig.zig`):
+Build (Zig 0.17, installed with `winget install zig.zig`). From the repo root, `make launcher` builds
+`dist/launcher/` with an ini that points at `dist/reader/CampLedgerReader.exe`; or by hand:
 
     zig cc -shared -O2 -target x86_64-windows-gnu CampLedgerLauncher.c -o build/CampLedgerLauncher.asi -lkernel32 -luser32
 

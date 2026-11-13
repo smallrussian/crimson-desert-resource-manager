@@ -242,3 +242,20 @@ succeeded and 0.1.1 reopened in the window, about 7 s after the click. Download 
 **Not yet checked:** an update from a real published GitHub release (none exists yet), the GitHub Actions workflow
 (first run happens on the first tag), relaunch into the tray (`/RELAUNCH=watch`), and an update over an install with
 "start with the game" ticked.
+
+## Build pipeline (2026-11-13)
+
+One top-level `Makefile` (GNU make, run from Git Bash) builds every component into `dist/`:
+
+| Target | Output |
+|---|---|
+| `make reader` | `dist/reader/CampLedgerReader.exe` (framework-dependent single file) + `offsets/` |
+| `make launcher` | `dist/launcher/CampLedgerLauncher.asi` (Zig) + `CampLedgerLauncher.ini` pointing at `dist/reader` |
+| `make web` | `dist/web/`; skips with a message, since the dashboard is embedded in the reader (no separate web project) |
+| `make` | all three |
+| `make test` | `dotnet test` on every test project |
+| `make clean` | removes `dist/` and `bin/`/`obj/` |
+
+Needs the .NET 8 SDK and Zig 0.17+; `make check-tools` reports both. The Makefile never writes to the game
+folder; the ASI loader (`winmm.dll`) is not built here and copying files into `bin64` stays manual.
+Rebuilding the reader fails while a launcher-started reader is running (the exe is locked); close the game first.
