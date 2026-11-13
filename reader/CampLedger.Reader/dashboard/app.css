@@ -140,6 +140,11 @@ main { padding: 16px clamp(16px, 3vw, 32px) 24px; }
 .card-head h3 { line-height: 1.2; }
 .card-head .type { color: var(--muted); font-size: .88rem; }
 .region { font-size: .72rem; text-transform: uppercase; letter-spacing: .1em; color: var(--gold-soft); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
+.card-tags { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+.repeat { font-size: .72rem; text-transform: uppercase; letter-spacing: .1em; border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
+.repeat.on { color: var(--gold); border-color: var(--gold-soft); }
+.repeat.off, .repeat.unk { color: var(--muted); }
+.repeat.unk { border-style: dashed; }
 .bar { height: 8px; border-radius: 99px; background: var(--bg-2); border: 1px solid var(--line-soft); overflow: hidden; }
 .bar > i { display: block; height: 100%; background: linear-gradient(90deg, var(--crimson), var(--gold)); }
 .bar-meta { display: flex; justify-content: space-between; font-size: .82rem; color: var(--muted); margin-top: 4px; gap: 8px; }

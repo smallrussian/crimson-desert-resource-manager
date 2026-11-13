@@ -27,7 +27,7 @@ public static class DashboardView
         int Workers, int? WorkersMin, int? WorkersMax, double? DurationHours, double? ElapsedHours, double? RemainingHours,
         double? Progress, bool Recurring, Reserves? Cost, Reserves? BaseReward, Reserves? Reward, BonusView? Bonus,
         List<string> Comrades, Reserves? Net, Dictionary<string, double>? NetPerHour, string? PersonalStorageReward, long? OperationKey = null,
-        string? ItemCost = null);
+        string? ItemCost = null, bool? Repeat = null);
 
     public sealed record AvailableView(
         string Name, string? Type, string? Location, string? Region, string? Role, string? Category,
@@ -139,6 +139,7 @@ public static class DashboardView
     /// A running mission with its reward raised by the bonus (calc core). A base reward of all zeros stays zero
     /// whatever the bonus, so one-off builds without reserve rewards are not made unknown by an unknown bonus.
     /// Recurring = the save's repeat flag is set; one-off builds are shown but kept out of the portfolio.
+    /// Repeat = the flag as read (null when the save has no repeat field), so the UI can say "unknown".
     /// </summary>
     public static RunningView RunningOf(Mission m, int? campLevel)
     {
@@ -160,7 +161,7 @@ public static class DashboardView
             m.Repeat == true, m.Cost, m.Reward, Res(reward),
             b is null ? null : new BonusView(b.Conversion, b.Skill, b.Comrade, b.Total, m.Bonus?.SkillType),
             m.Bonus?.Comrades?.Select(c => c.Name ?? "?").ToList() ?? new List<string>(),
-            Res(Calc.Net(line)), PerHour(Calc.NetPerHour(line)), m.PersonalStorageReward, m.OperationKey, m.ItemCost);
+            Res(Calc.Net(line)), PerHour(Calc.NetPerHour(line)), m.PersonalStorageReward, m.OperationKey, m.ItemCost, m.Repeat);
     }
 
     /// <summary>Slots up to the camp level are unlocked (docs/re-notes/comrade-bonuses.md).</summary>

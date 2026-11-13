@@ -80,6 +80,18 @@ public class DashboardTests
     }
 
     [Fact]
+    public void Repeat_flag_is_passed_through_as_read_with_null_for_unknown()
+    {
+        Assert.True(DashboardView.RunningOf(Glenbright(), 4).Repeat);
+        Assert.Null(DashboardView.RunningOf(Pond(), 4).Repeat);
+        var off = Glenbright();
+        off.Repeat = false;
+        var r = DashboardView.RunningOf(off, 4);
+        Assert.False(r.Repeat);
+        Assert.False(r.Recurring);
+    }
+
+    [Fact]
     public void One_off_builds_stay_out_of_totals_but_count_as_busy_comrades()
     {
         var state = new SnapshotLog.State();
