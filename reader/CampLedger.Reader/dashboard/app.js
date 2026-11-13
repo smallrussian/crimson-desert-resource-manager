@@ -143,6 +143,12 @@
   const realEta = (h) => (h == null ? "" : ` · ≈ ${hours(h * view.realSecondsPerGameHour / 3600)} real`);
 
   // ---------- missions ----------
+  // The save's repeat toggle (_operationShouldRepeat). null = the save has no such field: say so, do not guess.
+  function repeatTag(m) {
+    if (m.repeat === true) return '<span class="repeat on" title="Repeat is on in the game: it restarts when it finishes">↻ Repeating</span>';
+    if (m.repeat === false) return '<span class="repeat off" title="Repeat is off in the game: it ends when it finishes">One-off</span>';
+    return '<span class="repeat unk" title="This save has no repeat setting for the mission">Repeat unknown</span>';
+  }
   function missionCard(m) {
     const pct = m.progress == null ? 0 : Math.round(m.progress * 100);
     const b = m.bonus;
@@ -151,7 +157,7 @@
     const stop = m.operationKey != null && stopping(m.operationKey);
     return `<article class="card${stop ? " stopping" : ""}">
       <div class="card-head"><div><h3>${esc(m.location ?? m.name)}</h3><div class="type">${esc(m.type ?? "")}</div></div>
-        ${m.region ? `<span class="region">${esc(m.region)}</span>` : ""}</div>
+        <div class="card-tags">${repeatTag(m)}${m.region ? `<span class="region">${esc(m.region)}</span>` : ""}</div></div>
       <div><div class="bar" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><i style="width:${pct}%"></i></div>
         <div class="bar-meta"><span>${m.elapsedHours == null ? "?" : Math.round(m.elapsedHours * 10) / 10} / ${m.durationHours ?? "?"} h in game</span>
         <span>${m.remainingHours == null ? "" : hours(m.remainingHours) + " left" + realEta(m.remainingHours)}</span></div></div>
@@ -172,7 +178,7 @@
     let html = `<div class="section-title"><h2>Running</h2><p class="hint">${rec.length} repeating mission${rec.length === 1 ? "" : "s"}; these make up the totals above.</p></div>`;
     html += rec.length ? `<div class="cards">${rec.map(missionCard).join("")}</div>` : '<div class="empty">No repeating missions running.</div>';
     if (once.length) {
-      html += `<div class="section-title"><h2>Construction</h2><p class="hint">One-off builds: comrades are busy, but they are left out of the per-hour totals.</p></div>`;
+      html += `<div class="section-title"><h2>Not repeating</h2><p class="hint">Builds and missions with repeat off: comrades are busy, but they are left out of the per-hour totals.</p></div>`;
       html += `<div class="cards">${once.map(missionCard).join("")}</div>`;
     }
     if (view.portfolioUnknowns.length) html += `<p class="hint">Not counted: ${view.portfolioUnknowns.map(esc).join("; ")}</p>`;

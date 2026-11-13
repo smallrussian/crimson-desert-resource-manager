@@ -1,9 +1,9 @@
 # Builds installer\out\CampLedgerSetup-<version>.exe.
-#   powershell -ExecutionPolicy Bypass -File installer\build.ps1 [-Version 0.2.0]
+#   powershell -ExecutionPolicy Bypass -File installer\build.ps1 [-Version 0.3.0]
 # Needs: .NET 8 SDK, Inno Setup 6 (winget install JRSoftware.InnoSetup), the launcher ASI
 # (launcher\build\CampLedgerLauncher.asi; rebuilt here when zig is on PATH) and the Ultimate ASI Loader
 # (launcher\build\install\winmm.dll, see docs/architecture.md; checked against its SHA-256 below).
-param([string]$Version = "0.2.0")
+param([string]$Version = "0.3.0")
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
