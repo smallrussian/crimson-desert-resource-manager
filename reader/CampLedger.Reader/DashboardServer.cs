@@ -105,9 +105,14 @@ public sealed class DashboardServer : IDisposable
             case "/api/simulate":
             {
                 double hpd = double.TryParse(req.QueryString["hoursPerDay"], NumberStyles.Float, CultureInfo.InvariantCulture, out var h) ? h : Calc.DefaultHoursPerDay;
-                var stop = (req.QueryString["stop"] ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries)
-                    .Select(x => long.TryParse(x, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : -1).Where(v => v >= 0).ToHashSet();
-                SendJson(ctx, DashboardView.Simulate(_log.Current(), ParseAdd(req.QueryString["add"]), stop, hpd));
+                SendJson(ctx, DashboardView.Simulate(_log.Current(), ParseAdd(req.QueryString["add"]), ParseKeys(req.QueryString["stop"], ','), hpd,
+                    ParseAdd(req.QueryString["swap"])));
+                return;
+            }
+            case "/api/optimize":
+            {
+                SendJson(ctx, DashboardView.Optimize(_log.Current(), ParseAdd(req.QueryString["add"]), ParseKeys(req.QueryString["stop"], ','),
+                    ParseAdd(req.QueryString["swap"]), ParseKeys(req.QueryString["keep"], '.'), req.QueryString["running"] == "1"));
                 return;
             }
             case "/api/plan":
@@ -141,6 +146,11 @@ public sealed class DashboardServer : IDisposable
         }
         return result;
     }
+
+    /// <summary>Non-negative whole numbers separated by <paramref name="sep"/>. Bad parts are ignored. At most 200.</summary>
+    public static HashSet<long> ParseKeys(string? s, char sep) =>
+        (s ?? "").Split(sep, StringSplitOptions.RemoveEmptyEntries).Take(200)
+            .Select(x => long.TryParse(x, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : -1).Where(v => v >= 0).ToHashSet();
 
     static readonly Dictionary<string, byte[]> Assets = new();
 
