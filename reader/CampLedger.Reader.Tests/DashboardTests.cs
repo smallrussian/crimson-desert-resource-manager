@@ -92,6 +92,16 @@ public class DashboardTests
     }
 
     [Fact]
+    public void Missing_repeat_field_means_off_only_when_the_save_schema_has_it()
+    {
+        var on = new Dictionary<string, object?> { [SaveSource.RepeatField] = true };
+        var omitted = new Dictionary<string, object?> { ["_operationKey"] = 1525100747L };
+        Assert.True(SaveSource.RepeatOf(on, fieldInSchema: true));
+        Assert.False(SaveSource.RepeatOf(omitted, fieldInSchema: true));
+        Assert.Null(SaveSource.RepeatOf(omitted, fieldInSchema: false));
+    }
+
+    [Fact]
     public void One_off_builds_stay_out_of_totals_but_count_as_busy_comrades()
     {
         var state = new SnapshotLog.State();

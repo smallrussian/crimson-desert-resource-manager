@@ -68,6 +68,16 @@ public sealed class SaveSource : ISource
         }
     }
 
+    public const string RepeatField = "_operationShouldRepeat";
+
+    /// <summary>
+    /// The repeat toggle. The save writes only fields that differ from their default, so on a save whose schema has
+    /// the field, a running mission without it has repeat off (seen on a one-off build, 2.05.00). On older saves the
+    /// schema has no such field at all, and the value is unknown. docs/re-notes/save-contents.md.
+    /// </summary>
+    public static bool? RepeatOf(IReadOnlyDictionary<string, object?> node, bool fieldInSchema) =>
+        node.TryGetValue(RepeatField, out var r) ? r as bool? : fieldInSchema ? false : null;
+
     Snapshot Build(SaveBody body)
     {
         var unknowns = new List<string>
@@ -112,6 +122,7 @@ public sealed class SaveSource : ISource
                 sublevels[sn] = lv;
         var faction = body.Decode("FactionSaveData");
         if (faction is null) unknowns.Add("FactionSaveData block missing: no mission state");
+        bool repeatInSchema = body.Types.Any(t => t.Fields.Any(f => f.Name == RepeatField));
         foreach (var node in List(faction, "_factionNodeElementSaveDataList"))
         {
             if (!node.ContainsKey("_operationKey")) continue;
@@ -126,7 +137,7 @@ public sealed class SaveSource : ISource
                 OperationKey = Long(node, "_operationKey"),
                 // _operationCurrentProgress is elapsed in-game hours x 10 (docs/re-notes/mission-static-data.md).
                 ElapsedHours = progress is null ? null : Math.Round(progress.Value / 10.0, 2),
-                Repeat = node.TryGetValue("_operationShouldRepeat", out var r) && r is bool b ? b : null,
+                Repeat = RepeatOf(node, repeatInSchema),
             };
             Describe(mission, unknowns);
             foreach (var m in List(node, "_operatorMercenaryList"))

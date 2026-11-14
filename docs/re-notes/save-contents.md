@@ -92,7 +92,7 @@ A node with a dispatch running has `_operationKey` present. Fields seen:
 | `_operationStartTimeRaw` | Clock value when the current cycle started |
 | `_operationLastUpdateTime` | Clock value at the last update. Identical across all nodes in one save, just before `_fieldTimeRaw` |
 | `_operationCurrentProgress` | Progress, 0–100 (one value of 103 seen, see below) |
-| `_operationShouldRepeat` | The "repeat" toggle. Present on 2.04.08 saves, absent on older ones |
+| `_operationShouldRepeat` | The "repeat" toggle. In the schema from 2.04.08 on, absent from older schemas. Written only when true (see below) |
 | `_operatorMercenaryList[]._mercenaryNo` | Mercenaries assigned (the workers) |
 | `_operatorWorkerCount`, `_secondOperatorWorkerCount` | In the schema but absent on every node seen |
 | `_totalCombatPower` | Reads as +inf on every running operation. Meaning unknown |
@@ -194,3 +194,13 @@ copy a save.save somewhere else first, then:
 .venv\Scripts\python tools\re\cdbody.py <copy>\save.save          # strict decode of every block
 .venv\Scripts\python tools\re\camp.py   <copy>\save.save          # reserves, operations, clock
 ```
+
+### Repeat flag: absent means off (2026-11-13, game 2.05.00)
+
+The body only writes fields whose presence-mask bit is set, and a bool at its default (`false`) is left out.
+Evidence: owner save slot 1 (2.05.00) has six running operations. Five carry `_operationShouldRepeat = true`;
+operation 1525100747, a one-off build that the owner confirms is not repeating, has no such field while the
+`FactionNodeElementSaveData` schema in the same save lists it. Same pattern as `_operatorWorkerCount`, which is
+in the schema but absent on every node seen. The reader therefore reads a missing field as `false` when the
+save's schema has it, and as unknown when the schema does not (pre-2.04.08 saves). Only one repeat-off mission
+has been seen so far; a second (a regular mission with repeat turned off) would confirm it.
