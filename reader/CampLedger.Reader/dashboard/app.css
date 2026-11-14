@@ -73,14 +73,6 @@ h3 { font-size: 1.05rem; }
 .pill.off .dot { background: var(--warn); }
 .pill.err .dot { background: var(--neg); }
 @keyframes pulse { 70% { box-shadow: 0 0 0 7px rgba(147,192,110,0); } 100% { box-shadow: 0 0 0 0 rgba(147,192,110,0); } }
-.icon-btn { display: inline-grid; place-items: center; width: 36px; height: 36px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); cursor: pointer; }
-.icon-btn:hover { color: var(--gold); border-color: var(--gold-soft); }
-.popover {
-  position: absolute; right: clamp(16px, 3vw, 32px); top: calc(100% + 8px); z-index: 20; width: min(300px, calc(100vw - 32px));
-  padding: 14px; border-radius: var(--r); border: 1px solid var(--gold-soft); background: var(--panel-2); box-shadow: 0 12px 30px rgba(0,0,0,.6);
-}
-.field { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-.field input { width: 80px; }
 input[type=number], input[type=search], select {
   background: var(--bg-2); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; min-height: 36px;
 }

@@ -46,7 +46,7 @@ public static class DashboardView
                                 double? PerHourAfter, double? PerDayBefore, double? PerDayAfter, double? HoursUntilEmptyAfter);
     public sealed record Simulation(List<SimRow> Reserves, int? Total, int InUseBefore, int InUseAfter, int? FreeBefore, int? FreeAfter,
                                     bool? OperatingBudgetOkAfter, List<PlannedView> Added, List<string> Stopped, List<string> Problems,
-                                    double HoursPerDay, List<PlannedView> Switched);
+                                    List<PlannedView> Switched);
     public sealed record OptimizeResult(List<PlanAdd> Add, List<PlanAdd> Swap, List<string> Notes);
 
     public sealed record HistoryPoint(DateTimeOffset T, string Source, long? Food, long? Funds, long? Stone, long? Timber, long? Armaments);
@@ -57,7 +57,7 @@ public static class DashboardView
     public sealed record WorkersView(int? Total, int InUse, int? Free, string? State);
 
     public sealed record View(
-        Status Status, List<ReserveRow> Reserves, bool? OperatingBudgetOk, double HoursPerDay, WorkersView Workers,
+        Status Status, List<ReserveRow> Reserves, bool? OperatingBudgetOk, WorkersView Workers,
         List<RunningView> Running, List<AvailableView> Available, List<ComradeView> Comrades, List<HistoryPoint> History,
         List<string> PortfolioUnknowns, List<string> Unknowns, double RealSecondsPerGameHour);
 
@@ -65,9 +65,8 @@ public static class DashboardView
     public sealed record PlanRow(string Key, long UpgradeCost, long? OperatingCost, long? TotalNeeded, long? Balance,
                                  long? Shortfall, AffordView Afford);
 
-    public static View Build(SnapshotLog.State log, double hoursPerDay, bool gameRunning, int maxHistory = 400)
+    public static View Build(SnapshotLog.State log, bool gameRunning, int maxHistory = 400)
     {
-        if (hoursPerDay <= 0 || double.IsNaN(hoursPerDay) || hoursPerDay > 24) hoursPerDay = Calc.DefaultHoursPerDay;
         var save = log.LatestSave;
         var balanceSnap = Newer(log.LatestSave, log.LatestProcess);
         var reserves = balanceSnap?.Reserves ?? new Reserves();
@@ -76,7 +75,7 @@ public static class DashboardView
         var running = (save?.Missions ?? new()).Select(m => RunningOf(m, campLevel)).ToList();
         var lines = running.Where(r => r.Recurring).Select(LineOf).ToList();
         var balance = Balance(reserves);
-        var portfolio = Calc.PortfolioOf(lines, balance, hoursPerDay);
+        var portfolio = Calc.PortfolioOf(lines, balance);
 
         var rows = ReserveSet<long?>.All.Select(r => new ReserveRow(
             Key(r), balance[r], portfolio.NetPerCycle[r], portfolio.Status[r]?.ToString(), portfolio.NetPerHour[r],
@@ -94,7 +93,7 @@ public static class DashboardView
         return new View(
             new Status(gameRunning, balanceSnap?.CapturedAt, balanceSnap?.Source, save?.CapturedAt, save?.GameVersion ?? balanceSnap?.GameVersion,
                        campLevel, save?.InGameClock),
-            rows, portfolio.OperatingBudgetOk, portfolio.HoursPerDay,
+            rows, portfolio.OperatingBudgetOk,
             new WorkersView(w.Total, w.InUse, w.Free, w.State?.ToString()),
             running,
             (save?.AvailableMissions ?? new()).Select(AvailableOf).ToList(),
@@ -180,10 +179,9 @@ public static class DashboardView
     /// with the chosen comrades' slots. A mission given fewer than its minimum is counted at the minimum, as if the
     /// rest had no matching skill, and flagged. A mission both stopped and switched counts as stopped.
     /// </summary>
-    public static Simulation Simulate(SnapshotLog.State log, IReadOnlyList<PlanAdd> add, IReadOnlyCollection<long> stop, double hoursPerDay,
+    public static Simulation Simulate(SnapshotLog.State log, IReadOnlyList<PlanAdd> add, IReadOnlyCollection<long> stop,
                                       IReadOnlyList<PlanAdd>? swap = null)
     {
-        if (hoursPerDay <= 0 || double.IsNaN(hoursPerDay) || hoursPerDay > 24) hoursPerDay = Calc.DefaultHoursPerDay;
         var save = log.LatestSave;
         int? campLevel = save?.CampLevel;
         var balance = Balance(Newer(log.LatestSave, log.LatestProcess)?.Reserves ?? new Reserves());
@@ -233,14 +231,14 @@ public static class DashboardView
             added.Add(staffed.View);
         }
 
-        var pb = Calc.PortfolioOf(before, balance, hoursPerDay);
-        var pa = Calc.PortfolioOf(after, balance, hoursPerDay);
+        var pb = Calc.PortfolioOf(before, balance);
+        var pa = Calc.PortfolioOf(after, balance);
         int? total = save?.Workers.Total;
         if (total is int t && inUseAfter > t) problems.Add($"the plan needs {inUseAfter} comrades; you have {t}");
         var rows = ReserveSet<long?>.All.Select(r => new SimRow(Key(r), balance[r], pb.NetPerCycle[r], pa.NetPerCycle[r],
             pb.NetPerHour[r], pa.NetPerHour[r], pb.NetPerDay[r], pa.NetPerDay[r], pa.HoursUntilEmpty[r])).ToList();
         return new Simulation(rows, total, inUseBefore, inUseAfter, total - inUseBefore, total - inUseAfter, pa.OperatingBudgetOk,
-            added, stopped.Select(r => r.Location ?? r.Name).ToList(), problems, hoursPerDay, switched);
+            added, stopped.Select(r => r.Location ?? r.Name).ToList(), problems, switched);
     }
 
     static Dictionary<long, Comrade> Roster(Snapshot? save) =>

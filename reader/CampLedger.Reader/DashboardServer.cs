@@ -12,7 +12,7 @@ namespace CampLedger.Reader;
 /// The local dashboard: a small HTTP server on http://localhost:5240 (this PC only) that serves the page and a
 /// read-only JSON API over the snapshot log. No accounts, no network access beyond this machine.
 ///   GET /                 the page (embedded files under dashboard/)
-///   GET /api/state?hoursPerDay=24
+///   GET /api/state
 ///   GET /api/plan?food=..&amp;funds=..&amp;stone=..&amp;timber=..&amp;armaments=..
 /// </summary>
 public sealed class DashboardServer : IDisposable
@@ -92,20 +92,18 @@ public sealed class DashboardServer : IDisposable
         {
             case "/api/state":
             {
-                double hpd = double.TryParse(req.QueryString["hoursPerDay"], NumberStyles.Float, CultureInfo.InvariantCulture, out var h) ? h : Calc.DefaultHoursPerDay;
                 var state = _log.Current();
                 bool running = _gameRunning();
-                string etag = $"\"{state.Version}-{running}-{hpd.ToString(CultureInfo.InvariantCulture)}\"";
+                string etag = $"\"{state.Version}-{running}\"";
                 if (req.Headers["If-None-Match"] == etag) { ctx.Response.Headers["ETag"] = etag; Send(ctx, 304, null, Array.Empty<byte>()); return; }
-                var view = DashboardView.Build(state, hpd, running);
+                var view = DashboardView.Build(state, running);
                 ctx.Response.Headers["ETag"] = etag;
                 SendJson(ctx, view);
                 return;
             }
             case "/api/simulate":
             {
-                double hpd = double.TryParse(req.QueryString["hoursPerDay"], NumberStyles.Float, CultureInfo.InvariantCulture, out var h) ? h : Calc.DefaultHoursPerDay;
-                SendJson(ctx, DashboardView.Simulate(_log.Current(), ParseAdd(req.QueryString["add"]), ParseKeys(req.QueryString["stop"], ','), hpd,
+                SendJson(ctx, DashboardView.Simulate(_log.Current(), ParseAdd(req.QueryString["add"]), ParseKeys(req.QueryString["stop"], ','),
                     ParseAdd(req.QueryString["swap"])));
                 return;
             }
