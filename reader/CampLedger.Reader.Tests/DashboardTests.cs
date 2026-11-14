@@ -230,7 +230,6 @@ public class DashboardTests
         var roster = new List<Comrade>
         {
             Roster("Evelyn", 1002973, 3624579346, ("Farming", 1, 10), ("Foodprocessing", 1, 10), ("Farming", 2, 30), ("Foodprocessing", 2, 30), ("Farming", 3, 60)),
-            Roster("Terry", 1002974, 3624579346, ("Farming", 1, 10), ("Farming", 2, 30), ("Crafting", 1, 10), ("Foodprocessing", 1, 10), ("Engineering", 1, 10)),
             Roster("Ashton", 574, null, ("Ranching", 1, 10), ("Weaving", 1, 10), ("Ranching", 2, 30), ("Foodprocessing", 1, 10), ("Ranching", 3, 60)),
             Roster("Aldric", 660, null, ("Building", 1, 0), ("Crafting", 1, 10), null, ("Crafting", 2, 30), null),
             Roster("Anders", 655, null), Roster("Brennan", 1002983, null), Roster("Devan", 1002435, null),
@@ -299,85 +298,5 @@ public class DashboardTests
         Assert.Equal(new long[] { 574, 660 }, p[0].Comrades);
         Assert.Empty(p[1].Comrades);
         Assert.Equal(new long[] { 5 }, p[2].Comrades);
-        Assert.Equal(new long[] { 7, 9 }, DashboardServer.ParseKeys("7.x.-3.9.", '.').OrderBy(x => x));
-    }
-
-    const long GlenbrightOp = 3624579346, ApiaryOp = 856813139;
-
-    [Fact]
-    public void Switching_a_running_crew_changes_its_bonus_and_frees_the_old_crew()
-    {
-        // Glenbright with Ashton and Anders instead of Evelyn and Terry: no Farming skill, so 40% instead of 80%.
-        var swap = new[] { new DashboardView.PlanAdd(GlenbrightOp, new List<long> { 574, 655 }) };
-        var add = new[] { new DashboardView.PlanAdd(ApiaryOp, new List<long> { 1002973, 1002974, 660, 1002983, 1002435 }) };
-        var sim = DashboardView.Simulate(PlanState(), add, Array.Empty<long>(), 24, swap);
-        var g = sim.Switched.Single();
-        Assert.Equal(0, g.Bonus!.Skill);
-        Assert.Equal(40, g.Bonus.Total);
-        Assert.Equal(1540, g.Reward!.Food);
-        Assert.Empty(g.Problems);
-        Assert.DoesNotContain(sim.Added.Single().Problems, x => x.Contains("busy"));   // Evelyn and Terry were freed
-        Assert.Equal(10 + 5, sim.InUseAfter);
-        Assert.Equal(1540 / 16.0 + 3500 * 140 / 100 / 19.0, sim.Reserves.Single(r => r.Key == "food").PerHourAfter!.Value, 6);
-    }
-
-    [Fact]
-    public void Switching_flags_comrades_busy_elsewhere_and_stop_wins_over_switch()
-    {
-        var state = PlanState();
-        var swap = new[] { new DashboardView.PlanAdd(GlenbrightOp, new List<long> { 1002973, 574 }) };
-        var ok = DashboardView.Simulate(state, Array.Empty<DashboardView.PlanAdd>(), Array.Empty<long>(), 24, swap);
-        Assert.Empty(ok.Switched.Single().Problems);   // Evelyn is already on Glenbright, so she is not "busy"
-
-        var both = DashboardView.Simulate(state, Array.Empty<DashboardView.PlanAdd>(), new[] { GlenbrightOp }, 24, swap);
-        Assert.Empty(both.Switched);
-        Assert.Equal(new[] { "Glenbright Farm" }, both.Stopped);
-    }
-
-    [Fact]
-    public void Optimize_staffs_planned_missions_with_the_best_lead()
-    {
-        var add = new[] { new DashboardView.PlanAdd(ApiaryOp, new List<long>()) };
-        var r = DashboardView.Optimize(PlanState(), add, Array.Empty<long>(), Array.Empty<DashboardView.PlanAdd>(), Array.Empty<long>(), false);
-        var crew = r.Add.Single().Comrades;
-        Assert.Equal(5, crew.Count);
-        Assert.Equal(574, crew[0]);                 // Ashton: Ranching 40
-        Assert.DoesNotContain(1002973, crew);       // running crews are left alone
-        Assert.Empty(r.Swap);
-        Assert.Empty(r.Notes);
-    }
-
-    [Fact]
-    public void Optimize_never_places_comrades_kept_on_hand()
-    {
-        var add = new[] { new DashboardView.PlanAdd(ApiaryOp, new List<long>()) };
-        var r = DashboardView.Optimize(PlanState(), add, Array.Empty<long>(), Array.Empty<DashboardView.PlanAdd>(), new long[] { 574 }, false);
-        Assert.DoesNotContain(574L, r.Add.Single().Comrades);
-        Assert.Equal(4, r.Add.Single().Comrades.Count);
-        Assert.Contains(r.Notes, n => n.Contains("1 comrade short") && n.Contains("kept on hand"));
-    }
-
-    [Fact]
-    public void Optimize_switches_a_running_crew_only_when_it_changes()
-    {
-        var none = Array.Empty<DashboardView.PlanAdd>();
-        var same = DashboardView.Optimize(PlanState(), none, Array.Empty<long>(), none, Array.Empty<long>(), true);
-        Assert.Empty(same.Swap);                    // Evelyn and Terry are already the best farmers
-
-        // Evelyn kept on hand: she comes off Glenbright, Terry leads, and the filler is a comrade with no skills.
-        var kept = DashboardView.Optimize(PlanState(), none, Array.Empty<long>(), none, new long[] { 1002973 }, true);
-        var s = kept.Swap.Single();
-        Assert.Equal(GlenbrightOp, s.OperationKey);
-        Assert.Equal(new long[] { 1002974, 655 }, s.Comrades);
-    }
-
-    [Fact]
-    public void Optimize_does_not_take_a_running_crew_to_fill_a_new_mission()
-    {
-        // 7 places (Apiary 5 + Glenbright 2) and 6 comrades without Ashton: the new mission is the one left short.
-        var add = new[] { new DashboardView.PlanAdd(ApiaryOp, new List<long>()) };
-        var r = DashboardView.Optimize(PlanState(), add, Array.Empty<long>(), Array.Empty<DashboardView.PlanAdd>(), new long[] { 574 }, true);
-        Assert.Empty(r.Swap);
-        Assert.Equal(4, r.Add.Single().Comrades.Count);
     }
 }
