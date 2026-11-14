@@ -71,7 +71,8 @@ or removed.
 Camp Ledger checks this repository's GitHub Releases for a new version shortly after it
 starts and every 6 hours. When there is one, click **Update and restart**. It downloads the
 new installer, checks its size and SHA-256 against what GitHub reports, and installs over the
-current version, keeping your snapshots and settings. You can turn automatic checks off in
+current version, keeping your snapshots and settings. To check right away, click **Check for
+updates** at the top of the window, or use the tray menu. You can turn automatic checks off in
 the tray menu.
 
 Game patches need an app update before Camp Ledger can read the new version, so expect a

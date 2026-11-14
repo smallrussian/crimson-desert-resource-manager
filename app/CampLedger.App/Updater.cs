@@ -73,6 +73,11 @@ sealed class Updater : IDisposable
                 Changed?.Invoke();
                 if (!manual) Found?.Invoke(newer);
             }
+            else if (manual && newer is not null && Dismissed)
+            {
+                Dismissed = false;   // asked again after "Later": show the banner again
+                Changed?.Invoke();
+            }
             if (manual && newer is null)
                 Show(owner, problem is null
                     ? $"Camp Ledger {CurrentText} is the latest version."

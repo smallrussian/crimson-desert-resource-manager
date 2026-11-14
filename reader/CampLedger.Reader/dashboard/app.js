@@ -622,6 +622,13 @@
 
   // ---------- events ----------
   function wire() {
+    // Only inside the Camp Ledger window (WebView2): the window runs the update check. A plain browser has no updater.
+    const host = window.chrome && window.chrome.webview;
+    if (host) {
+      const b = $("checkUpdates");
+      b.hidden = false;
+      b.addEventListener("click", () => host.postMessage("check-updates"));
+    }
     const tabs = TABS;
     tabs.forEach((t) => $("tab-" + t).addEventListener("click", () => showTab(t)));
     document.querySelector(".tabs").addEventListener("keydown", (e) => {

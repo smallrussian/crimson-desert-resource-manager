@@ -21,7 +21,7 @@ Releases happen when a pull request that bumps the version is merged into `main`
      `installeruild.ps1`, and **publishes** release `vX.Y.Z` (tagged at the merged commit, marked latest, with
      generated notes). A failed test or build publishes nothing.
 3. Installed apps see it within 20 seconds of starting, or within 6 hours if they are already running, and right
-   away from **Check for updates** in the tray menu.
+   away from **Check for updates** in the window header or the tray menu.
 
 There is no manual test step any more: test the installer from the pull request's branch with `installeruild.ps1`
 before merging (see "Testing an update without publishing"). The workflow can also be started by hand from the
@@ -57,7 +57,11 @@ through SmartScreen.
 
 Tray menu: **Check for updates (version X.Y.Z)**, **Check for updates automatically** (on by default; stored in
 `%LOCALAPPDATA%\CampLedger\updates.json`), and **Update to version X.Y.Z and restart** once one is found. The window
-banner's **Later** hides it until the app restarts.
+banner's **Later** hides it until the app restarts, or until **Check for updates** is used again.
+
+Window: a **Check for updates** button in the dashboard header, shown only inside the app window (the page asks the
+window over WebView2 `postMessage`; messages from any page but the local dashboard are ignored). It runs the same
+manual check as the tray item.
 
 ## Testing an update without publishing
 
