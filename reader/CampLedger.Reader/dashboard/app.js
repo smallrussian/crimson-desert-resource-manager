@@ -42,12 +42,8 @@
     plan: store.get("plan", { food: 0, funds: 0, stone: 0, timber: 0, armaments: 0 }),
     simAdd: store.get("simAdd", []),      // [{ op, comrades: [characterKey] }]
     simStop: store.get("simStop", []),    // [operationKey]
-    simSwap: store.get("simSwap", []),    // [{ op, comrades: [characterKey] }]: running missions with a new crew
-    keep: store.get("keep", {}),          // { characterKey: activity }: comrades kept on hand, never auto-picked
-    optRunning: store.get("optRunning", true),
     cq: "", cskill: "", cstate: store.get("cstate", "all"),
   };
-  let optUndo = null, optNotes = null;
   let sim = null, simTimer = 0, simSeq = 0;
   const TABS = ["missions", "available", "comrades", "plan", "planner", "history"];
   const SKILL_NAME = { Foodprocessing: "Cooking" };
@@ -56,15 +52,8 @@
   const matchOf = (c, type) => !type || !c.slots ? 0 : c.slots.reduce((n, s) => n + (s && s.unlocked && s.type === type ? s.percent : 0), 0);
   const inPlan = (op) => ui.simAdd.some((a) => String(a.op) === String(op));
   const stopping = (op) => ui.simStop.some((x) => String(x) === String(op));
-  const switching = (op) => ui.simSwap.some((s) => String(s.op) === String(op));
-  const planSize = () => ui.simAdd.length + ui.simStop.length + ui.simSwap.length;
-  const saveSim = () => { store.set("simAdd", ui.simAdd); store.set("simStop", ui.simStop); store.set("simSwap", ui.simSwap); queueSim(); };
-  const keptFor = (k) => ui.keep[String(k)];
-  const saveKeep = () => store.set("keep", ui.keep);
-  // A comrade's skills as activity choices for "keep on hand", best first.
-  const activitiesOf = (c) => [...new Set((c.slots || []).filter(Boolean).map((s) => s.type))]
-    .sort((a, b) => matchOf(c, b) - matchOf(c, a) || skillName(a).localeCompare(skillName(b)));
-  const encodeCrews = (list) => list.map((a) => `${a.op}:${a.comrades.join(".")}`).join(",");
+  const planSize = () => ui.simAdd.length + ui.simStop.length;
+  const saveSim = () => { store.set("simAdd", ui.simAdd); store.set("simStop", ui.simStop); queueSim(); };
   let view = null, etag = null, lastOk = 0, failing = false;
 
   // ---------- data ----------
@@ -166,8 +155,7 @@
     const bonus = b ? `<div class="bonus">Bonus <b>${b.total == null ? "unknown" : "+" + b.total + "%"}</b>
         <span title="Church conversion · best comrade skill · extra comrades">(${b.conversion ?? "?"}% conversion · ${b.skill ?? "?"}% ${esc(b.skillType ?? "skill")} · ${b.comrade ?? "?"}% comrades)</span></div>` : "";
     const stop = m.operationKey != null && stopping(m.operationKey);
-    const swap = m.operationKey != null && switching(m.operationKey);
-    return `<article class="card${stop ? " stopping" : ""}${swap ? " switching" : ""}">
+    return `<article class="card${stop ? " stopping" : ""}">
       <div class="card-head"><div><h3>${esc(m.location ?? m.name)}</h3><div class="type">${esc(m.type ?? "")}</div></div>
         <div class="card-tags">${repeatTag(m)}${m.region ? `<span class="region">${esc(m.region)}</span>` : ""}</div></div>
       <div><div class="bar" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><i style="width:${pct}%"></i></div>
@@ -181,10 +169,7 @@
       ${bonus}
       ${m.comrades.length ? `<div class="comrades">${m.comrades.map((c) => `<span class="chip-s">${esc(c)}</span>`).join("")}</div>` : ""}
       ${m.personalStorageReward ? `<div class="extra">Also to storage: ${esc(m.personalStorageReward)}</div>` : ""}
-      ${m.operationKey != null ? `<div class="card-foot">
-        ${m.recurring && !stop ? `<button class="btn small${swap ? " on" : ""}" data-plan-swap="${esc(m.operationKey)}"
-          title="Try this mission with different comrades">${swap ? "Switching crew · undo" : "Switch crew"}</button>` : ""}
-        <button class="btn small danger${stop ? " on" : ""}" data-plan-stop="${esc(m.operationKey)}"
+      ${m.operationKey != null ? `<div class="card-foot"><button class="btn small danger${stop ? " on" : ""}" data-plan-stop="${esc(m.operationKey)}"
           title="Try the plan without this mission">${stop ? "Stopping in plan · undo" : "Stop in plan"}</button></div>` : ""}
     </article>`;
   }
@@ -273,8 +258,7 @@
     const sel = $("cskill"), cur = ui.cskill;
     sel.innerHTML = '<option value="">Any skill</option>' + types.map((t) => `<option value="${esc(t)}"${t === cur ? " selected" : ""}>${esc(skillName(t))}</option>`).join("");
     const free = view.comrades.filter((c) => !c.busy).length;
-    const kept = view.comrades.filter((c) => keptFor(c.key)).length;
-    $("cstate").innerHTML = [["all", `All ${view.comrades.length}`], ["free", `Free ${free}`], ["busy", `On missions ${view.comrades.length - free}`], ["kept", `Kept on hand ${kept}`]]
+    $("cstate").innerHTML = [["all", `All ${view.comrades.length}`], ["free", `Free ${free}`], ["busy", `On missions ${view.comrades.length - free}`]]
       .map(([k, l]) => `<button class="chip" data-cstate="${k}" aria-pressed="${ui.cstate === k}">${l}</button>`).join("");
   }
   function slotRow(s, i, hit) {
@@ -289,38 +273,18 @@
     const q = ui.cq.trim().toLowerCase();
     let list = view.comrades.filter((c) =>
       (!q || c.name.toLowerCase().includes(q) || (c.missionName || "").toLowerCase().includes(q)) &&
-      (ui.cstate === "all" || (ui.cstate === "kept" ? !!keptFor(c.key) : (ui.cstate === "free") === !c.busy)) &&
+      (ui.cstate === "all" || (ui.cstate === "free") === !c.busy) &&
       (!ui.cskill || (c.slots || []).some((s) => s && s.type === ui.cskill)));
     if (ui.cskill) list = list.slice().sort((a, b) => matchOf(b, ui.cskill) - matchOf(a, ui.cskill) || a.name.localeCompare(b.name));
     else list = list.slice().sort((a, b) => (a.busy - b.busy) || a.name.localeCompare(b.name));
     if (!view.comrades.length) { $("comradeList").innerHTML = '<div class="empty">No comrades read from the save yet.</div>'; return; }
     if (!list.length) { $("comradeList").innerHTML = '<div class="empty">No comrades match.</div>'; return; }
-    $("comradeList").innerHTML = list.map((c) => {
-      const kept = keptFor(c.key), acts = activitiesOf(c);
-      const keepCtl = c.key == null ? "" : kept
-        ? `<div class="keep on"><span>Kept on hand for</span>
-            <select data-keep-act="${esc(c.key)}" aria-label="Activity ${esc(c.name)} is kept for">
-              ${[...new Set([...acts, kept, "General"])].map((t) => `<option value="${esc(t)}"${t === kept ? " selected" : ""}>${esc(skillName(t))}</option>`).join("")}
-            </select>
-            <button class="btn ghost small" data-keep-off="${esc(c.key)}">Release</button></div>`
-        : `<div class="keep"><button class="btn ghost small" data-keep-on="${esc(c.key)}"
-            title="Keep this comrade at camp for an activity: auto-pick and Optimize will leave them out">Keep on hand</button></div>`;
-      return `<article class="card comrade${kept ? " kept" : ""}">
+    $("comradeList").innerHTML = list.map((c) => `<article class="card comrade">
       <div class="card-head"><div><h3>${esc(c.name)}</h3>
-        <div class="state ${c.busy ? "busy" : "free"}">${c.busy ? "On " + esc(c.missionName || "a mission") : "Free"}${kept ? ` · <span class="kept-tag">kept for ${esc(skillName(kept))}</span>` : ""}</div></div>
+        <div class="state ${c.busy ? "busy" : "free"}">${c.busy ? "On " + esc(c.missionName || "a mission") : "Free"}</div></div>
         ${ui.cskill ? `<span class="region" title="Unlocked ${esc(skillName(ui.cskill))} total">+${matchOf(c, ui.cskill)}%</span>` : ""}</div>
       <div class="slots">${c.slots ? c.slots.map((s, i) => slotRow(s, i, ui.cskill)).join("") : '<span class="unk">skills not read</span>'}</div>
-      ${keepCtl}
-    </article>`;
-    }).join("");
-  }
-  function onComradeClick(e) {
-    const t = e.target.closest("button"); if (!t) return;
-    const d = t.dataset;
-    if (d.keepOn) { const c = comradeByKey(d.keepOn); ui.keep[d.keepOn] = (c && activitiesOf(c)[0]) || "General"; }
-    else if (d.keepOff) delete ui.keep[d.keepOff];
-    else return;
-    saveKeep(); renderComradeControls(); renderComrades(); if (ui.tab === "plan") renderPlan();
+    </article>`).join("");
   }
 
   // ---------- plan (what-if) ----------
@@ -334,8 +298,8 @@
     simTimer = setTimeout(runSim, delay);
   }
   async function runSim() {
-    const qs = `hoursPerDay=${encodeURIComponent(ui.hpd)}&add=${encodeURIComponent(encodeCrews(ui.simAdd))}`
-      + `&stop=${encodeURIComponent(ui.simStop.join(","))}&swap=${encodeURIComponent(encodeCrews(ui.simSwap))}`;
+    const add = ui.simAdd.map((a) => `${a.op}:${a.comrades.join(".")}`).join(",");
+    const qs = `hoursPerDay=${encodeURIComponent(ui.hpd)}&add=${encodeURIComponent(add)}&stop=${encodeURIComponent(ui.simStop.join(","))}`;
     const seq = ++simSeq;
     let result = null;
     try { result = await (await fetch(`/api/simulate?${qs}`, { cache: "no-store" })).json(); }
@@ -345,43 +309,14 @@
     renderPlan(); renderPlanBar();
   }
   const availByOp = (op) => view && view.available.find((m) => String(m.operationKey) === String(op));
-  const runningByOp = (op) => view && view.running.find((m) => String(m.operationKey) === String(op));
   const comradeByKey = (k) => view && view.comrades.find((c) => String(c.key) === String(k));
-  const crewOf = (op) => view.comrades.filter((c) => c.key != null && String(c.operationKey) === String(op)).map((c) => String(c.key));
-  // Comrades who could join this planned entry: not picked elsewhere in the plan, and free, freed by the plan, or
-  // already on this mission. Kept-on-hand comrades come last and are never auto-picked.
-  function candidates(entry, skillType) {
-    const taken = new Set([...ui.simAdd, ...ui.simSwap].filter((x) => x !== entry).flatMap((x) => x.comrades.map(String)));
-    const mine = new Set(entry.comrades.map(String));
+  function candidates(planned) {
+    const taken = new Set(ui.simAdd.flatMap((a) => a.comrades.map(String)));
+    const m = availByOp(planned.op);
     return view.comrades
-      .filter((c) => c.key != null && !taken.has(String(c.key)) && !mine.has(String(c.key))
-        && (!c.busy || stopping(c.operationKey) || switching(c.operationKey) || String(c.operationKey) === String(entry.op)))
-      .map((c) => ({ c, match: matchOf(c, skillType), kept: keptFor(c.key) }))
-      .sort((a, b) => !!a.kept - !!b.kept || b.match - a.match || a.c.name.localeCompare(b.c.name));
-  }
-  function toggleSwap(op) {
-    ui.simSwap = switching(op) ? ui.simSwap.filter((s) => String(s.op) !== String(op)) : [...ui.simSwap, { op: String(op), comrades: crewOf(op) }];
-    saveSim(); renderMissions(); renderPlanBar();
-  }
-  async function optimize() {
-    const qs = `add=${encodeURIComponent(encodeCrews(ui.simAdd))}&stop=${encodeURIComponent(ui.simStop.join(","))}`
-      + `&swap=${encodeURIComponent(encodeCrews(ui.simSwap))}&keep=${encodeURIComponent(Object.keys(ui.keep).join("."))}`
-      + `&running=${ui.optRunning ? 1 : 0}`;
-    let r;
-    try { r = await (await fetch(`/api/optimize?${qs}`, { cache: "no-store" })).json(); }
-    catch { optNotes = ["Optimize unavailable: the reader is not reachable."]; renderPlan(); return; }
-    optUndo = { add: structuredClone(ui.simAdd), swap: structuredClone(ui.simSwap) };
-    const norm = (l) => l.map((x) => ({ op: String(x.operationKey), comrades: x.comrades.map(String) }));
-    const before = JSON.stringify([ui.simAdd, ui.simSwap]);
-    ui.simAdd = norm(r.add); ui.simSwap = norm(r.swap);
-    const changed = before !== JSON.stringify([ui.simAdd, ui.simSwap]);
-    const n = ui.simSwap.length, said = [];
-    if (ui.simAdd.length) said.push(`Picked crews for ${ui.simAdd.length} planned mission${ui.simAdd.length === 1 ? "" : "s"}.`);
-    if (n) said.push(`Suggests switching the crew on ${n} running mission${n === 1 ? "" : "s"}.`);
-    else if (ui.optRunning) said.push("Your running crews already have the best leads.");
-    optNotes = [...said, ...r.notes];
-    if (!changed) optUndo = null;
-    saveSim(); renderMissions(); renderAvailable(); renderPlan(); renderPlanBar();
+      .filter((c) => !taken.has(String(c.key)) && (!c.busy || stopping(c.operationKey)))
+      .map((c) => ({ c, match: matchOf(c, m && m.skillType) }))
+      .sort((a, b) => b.match - a.match || a.c.name.localeCompare(b.c.name));
   }
   function delta(before, after, unit) {
     if (before == null || after == null) return '<span class="unk">unknown</span>';
@@ -398,64 +333,16 @@
     bar.innerHTML = `<span class="t">Plan</span>
       <span class="d">${ui.simAdd.length ? `<span>+${ui.simAdd.length} mission${ui.simAdd.length === 1 ? "" : "s"}</span>` : ""}
         ${ui.simStop.length ? `<span>−${ui.simStop.length} stopped</span>` : ""}
-        ${ui.simSwap.length ? `<span>⇄${ui.simSwap.length} switched</span>` : ""}
         ${parts.join("")}
         ${sim && sim.freeAfter != null ? `<span>${sim.freeAfter} comrades free</span>` : ""}</span>
       <button class="btn" data-open-plan>Review plan</button>`;
-  }
-  function optimizePanel() {
-    return `<div class="optimize">
-      <div class="opt-row"><button class="btn" data-optimize>Optimize comrades</button>
-        <label class="check"><input type="checkbox" data-opt-running${ui.optRunning ? " checked" : ""}> Also switch crews on running missions</label>
-        ${optUndo ? '<button class="btn ghost small" data-opt-undo>Undo</button>' : ""}</div>
-      <p class="hint">Puts each mission's best skilled comrade in the lead (only the best one's skill counts) and fills the rest with
-        comrades whose skills are worth least, so strong ones stay free. Crew sizes are not changed.
-        ${Object.keys(ui.keep).length ? `Leaves out ${Object.keys(ui.keep).length} comrade${Object.keys(ui.keep).length === 1 ? "" : "s"} kept on hand.` : "Mark comrades <b>Keep on hand</b> under <b>Comrades</b> to leave them out."}
-        Missions with bigger rewards per hour win ties; one unit of any reserve counts the same.</p>
-      ${optNotes && optNotes.length ? `<ul class="opt-notes">${optNotes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}
-    </div>`;
-  }
-  // One planned entry: an added mission (kind "add") or a running one with a new crew (kind "swap").
-  function crewCard(kind, a, m, r) {
-    const need = m.workersMin ?? 0, max = m.workersMax ?? Math.max(need, a.comrades.length);
-    const picked = a.comrades.map(comradeByKey).filter(Boolean);
-    const cands = candidates(a, m.skillType ?? (m.bonus && m.bonus.skillType));
-    const type = m.skillType ?? (m.bonus && m.bonus.skillType);
-    const auto = cands.filter((x) => !x.kept);
-    const b = r && r.bonus, id = `${kind}|${esc(a.op)}`;
-    const now = kind === "swap" ? crewOf(a.op) : [];
-    const pickChip = (c) => {
-      const kept = keptFor(c.key), isNew = kind === "swap" && !now.includes(String(c.key));
-      return `<span class="pick${kept ? " kept" : ""}${isNew ? " new" : ""}" title="${kept ? "Kept on hand for " + esc(skillName(kept)) : isNew ? "Joins this mission" : ""}">${esc(c.name)}
-        <b class="pct">${type ? "+" + matchOf(c, type) + "%" : ""}</b>${kept ? '<span class="z">kept</span>' : ""}<button data-unpick="${id}|${esc(c.key)}" aria-label="Remove ${esc(c.name)}">×</button></span>`;
-    };
-    const leaving = kind === "swap" ? now.filter((k) => !a.comrades.map(String).includes(k)).map(comradeByKey).filter(Boolean) : [];
-    return `<div class="planned${kind === "swap" ? " swap" : ""}">
-      <div class="card-head"><div><h3>${esc(m.location ?? m.name)}</h3><div class="type">${kind === "swap" ? "Switch crew · " : ""}${esc(m.type ?? "")}</div></div>
-        <button class="btn ghost small" data-${kind === "swap" ? "unswap" : "unplan"}="${esc(a.op)}">${kind === "swap" ? "Keep crew" : "Remove"}</button></div>
-      <div class="flow">
-        <span class="lbl">Comrades</span><span>${picked.length} picked · needs ${need}${max > need ? `–${max}` : ""}${type ? ` · uses <b>${esc(skillName(type))}</b>` : ""}</span>
-        ${kind === "add" ? `<span class="lbl">Cost</span>${amounts(m.cost)}` : ""}
-        <span class="lbl">Reward</span>${r ? amounts(r.reward) : '<span class="unk">…</span>'}${kind === "swap" && m.reward ? ` <span class="hint">now ${amounts(m.reward)}</span>` : ""}
-        <span class="lbl">Net</span>${r ? netList(r.netPerHour) : '<span class="unk">…</span>'}
-      </div>
-      ${b ? `<div class="bonus">Bonus <b>${b.total == null ? "unknown" : "+" + b.total + "%"}</b> (${b.conversion ?? "?"}% conversion · ${b.skill ?? "?"}% skill · ${b.comrade ?? "?"}% comrades)${kind === "swap" && m.bonus && m.bonus.total != null ? ` · now +${m.bonus.total}%` : ""}</div>` : ""}
-      <div class="crew">${picked.map(pickChip).join("")}
-        ${picked.length < max && auto.length ? `<button class="btn small" data-autopick="${id}">${picked.length < need ? "Auto-pick best" : "Add best"}</button>` : ""}</div>
-      ${leaving.length ? `<p class="hint">Comes off: ${leaving.map((c) => esc(c.name)).join(", ")}</p>` : ""}
-      ${picked.length < max ? `<details${picked.length < need ? " open" : ""}><summary class="hint">Choose comrades (${cands.length} available${type ? ", best " + esc(skillName(type)) + " first" : ""})</summary>
-        <div class="picker">${cands.map(({ c, match, kept }) => `<button class="cand${kept ? " kept" : ""}" data-pick="${id}|${esc(c.key)}">${esc(c.name)} ${type ? (match ? `<b>+${match}%</b>` : '<span class="z">+0%</span>') : ""}${kept ? ` <span class="z">(kept for ${esc(skillName(kept))})</span>` : c.busy && String(c.operationKey) !== String(a.op) ? ' <span class="z">(freed)</span>' : ""}</button>`).join("") || '<span class="hint">Nobody available.</span>'}</div></details>` : ""}
-      ${need && max > need ? `<p class="hint">Each comrade above ${need} adds +20% (up to +40%).</p>` : ""}
-      ${r && r.problems.length ? `<ul class="problems">${r.problems.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>` : ""}
-    </div>`;
   }
   function renderPlan() {
     const el = $("view-plan");
     if (!view) return;
     if (!planSize()) {
-      el.innerHTML = `<div class="empty"><h2>No plan yet</h2><p class="hint">Use <b>+ Plan</b> on missions in <b>Available</b>, or <b>Switch crew</b> / <b>Stop in plan</b> on running ones under <b>Missions</b>.
-        Then pick comrades here and see how your reserves and free comrades change before you commit in game.</p></div>
-        <div class="panel" style="margin-top:14px">${optimizePanel()}</div>`;
+      el.innerHTML = `<div class="empty"><h2>No plan yet</h2><p class="hint">Use <b>+ Plan</b> on missions in <b>Available</b>, or <b>Stop in plan</b> on running ones under <b>Missions</b>.
+        Then pick comrades here and see how your reserves and free comrades change before you commit in game.</p></div>`;
       return;
     }
     if (!sim) { el.innerHTML = '<div class="empty">Working it out…</div>'; return; }
@@ -466,7 +353,6 @@
     const freeCls = sim.freeAfter != null && sim.freeAfter < 0 ? "neg" : "";
     const problems = [...sim.problems, ...(sim.operatingBudgetOkAfter === false ? ["food or funds would shrink every cycle (operating budget)"] : [])];
     const effect = `<div class="panel">
-      ${optimizePanel()}
       <h2>Effect</h2>
       <div class="stat-line"><span>Comrades free</span><span class="big">${sim.freeBefore ?? "?"} → <span class="${freeCls}">${sim.freeAfter ?? "?"}</span></span>
         <span class="hint">of ${sim.total ?? "?"}</span></div>
@@ -474,57 +360,56 @@
         <tbody>${rows}</tbody></table></div>
       ${problems.length ? `<ul class="problems">${problems.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>` : ""}
       ${ui.simStop.length ? `<h3 style="margin-top:14px">Stopping</h3><div class="crew">${ui.simStop.map((op) => {
-          const r = runningByOp(op);
+          const r = view.running.find((m) => String(m.operationKey) === String(op));
           return `<span class="pick">${esc(r ? (r.location ?? r.name) + (r.type ? " · " + r.type : "") : "mission " + op)}<button data-unstop="${esc(op)}" aria-label="Keep running">×</button></span>`;
         }).join("")}</div>` : ""}
-      <p class="hint">Per-day figures assume ${sim.hoursPerDay} hours of play a day. Totals count repeating missions only.
-        Switching a crew in game may restart that mission's timer; the plan does not count lost progress.</p>
+      <p class="hint">Per-day figures assume ${sim.hoursPerDay} hours of play a day. Totals count repeating missions only.</p>
       <div style="margin-top:10px"><button class="btn ghost" data-clear-plan>Clear plan</button></div>
     </div>`;
-    const swaps = ui.simSwap.map((a) => {
-      const m = runningByOp(a.op), r = (sim.switched || []).find((x) => String(x.operationKey) === String(a.op));
-      if (!m) return `<div class="planned"><b>Mission ${esc(a.op)}</b><span class="neg">No longer running.</span><div><button class="btn ghost small" data-unswap="${esc(a.op)}">Remove</button></div></div>`;
-      return crewCard("swap", a, m, r);
-    }).join("");
-    const adds = ui.simAdd.map((a) => {
+    const cards = ui.simAdd.map((a) => {
       const m = availByOp(a.op), r = sim.added.find((x) => String(x.operationKey) === String(a.op));
       if (!m) return `<div class="planned"><b>Mission ${esc(a.op)}</b><span class="neg">No longer available.</span><div><button class="btn ghost small" data-unplan="${esc(a.op)}">Remove</button></div></div>`;
-      return crewCard("add", a, m, r);
+      const need = m.workersMin ?? 0, max = m.workersMax ?? need;
+      const picked = a.comrades.map(comradeByKey).filter(Boolean);
+      const cands = candidates(a);
+      const b = r && r.bonus;
+      return `<div class="planned">
+        <div class="card-head"><div><h3>${esc(m.location ?? m.name)}</h3><div class="type">${esc(m.type ?? "")}</div></div>
+          <button class="btn ghost small" data-unplan="${esc(a.op)}">Remove</button></div>
+        <div class="flow">
+          <span class="lbl">Comrades</span><span>${picked.length} picked · needs ${need}${max > need ? `–${max}` : ""}${m.skillType ? ` · uses <b>${esc(skillName(m.skillType))}</b>` : ""}</span>
+          <span class="lbl">Cost</span>${amounts(m.cost)}
+          <span class="lbl">Reward</span>${r ? amounts(r.reward) : '<span class="unk">…</span>'}
+          <span class="lbl">Net</span>${r ? netList(r.netPerHour) : '<span class="unk">…</span>'}
+        </div>
+        ${b ? `<div class="bonus">Bonus <b>${b.total == null ? "unknown" : "+" + b.total + "%"}</b> (${b.conversion ?? "?"}% conversion · ${b.skill ?? "?"}% skill · ${b.comrade ?? "?"}% comrades)</div>` : ""}
+        <div class="crew">${picked.map((c) => `<span class="pick">${esc(c.name)} <b class="pct">${m.skillType ? "+" + matchOf(c, m.skillType) + "%" : ""}</b><button data-unpick="${esc(a.op)}|${esc(c.key)}" aria-label="Remove ${esc(c.name)}">×</button></span>`).join("")}
+          ${picked.length < max && cands.length ? `<button class="btn small" data-autopick="${esc(a.op)}">${picked.length < need ? "Auto-pick best" : "Add best"}</button>` : ""}</div>
+        ${picked.length < max ? `<details${picked.length < need ? " open" : ""}><summary class="hint">Choose comrades (${cands.length} free${m.skillType ? ", best " + esc(skillName(m.skillType)) + " first" : ""})</summary>
+          <div class="picker">${cands.map(({ c, match }) => `<button class="cand" data-pick="${esc(a.op)}|${esc(c.key)}">${esc(c.name)} ${m.skillType ? (match ? `<b>+${match}%</b>` : '<span class="z">+0%</span>') : ""}${c.busy ? ' <span class="z">(freed)</span>' : ""}</button>`).join("") || '<span class="hint">Nobody free.</span>'}</div></details>` : ""}
+        ${need && max > need ? `<p class="hint">Each comrade above ${need} adds +20% (up to +40%).</p>` : ""}
+        ${r && r.problems.length ? `<ul class="problems">${r.problems.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>` : ""}
+      </div>`;
     }).join("");
-    const cards = (swaps ? `<h3>Switching crews</h3>${swaps}` : "") + (adds ? `${swaps ? "<h3>New missions</h3>" : ""}${adds}` : "");
     el.innerHTML = `<div class="plan-grid">${effect}<div class="cards" style="grid-template-columns:1fr;margin:0">${cards || '<div class="empty">No missions added. Add some from <b>Available</b>.</div>'}</div></div>`;
   }
   function onPlanClick(e) {
-    const t = e.target.closest("button, input[data-opt-running]"); if (!t) return;
+    const t = e.target.closest("button"); if (!t) return;
     const d = t.dataset;
-    const find = (kind, op) => (kind === "swap" ? ui.simSwap : ui.simAdd).find((a) => String(a.op) === String(op));
-    const maxOf = (kind, op, a) => {
-      const m = kind === "swap" ? runningByOp(op) : availByOp(op);
-      return m ? [m.workersMin ?? 0, m.workersMax ?? Math.max(m.workersMin ?? 0, a.comrades.length), m.skillType ?? (m.bonus && m.bonus.skillType)] : null;
-    };
-    if (d.optRunning !== undefined) { ui.optRunning = t.checked; store.set("optRunning", ui.optRunning); return; }
-    if (d.optimize !== undefined) { optimize(); return; }
-    if (d.optUndo !== undefined) {
-      if (!optUndo) return;
-      ui.simAdd = optUndo.add; ui.simSwap = optUndo.swap; optUndo = null; optNotes = null;
-      saveSim(); renderMissions(); renderAvailable(); renderPlan(); renderPlanBar(); return;
-    }
-    optNotes = null;
+    const find = (op) => ui.simAdd.find((a) => String(a.op) === String(op));
     if (d.unplan) { ui.simAdd = ui.simAdd.filter((a) => String(a.op) !== d.unplan); renderAvailable(); }
-    else if (d.unswap) { ui.simSwap = ui.simSwap.filter((a) => String(a.op) !== d.unswap); renderMissions(); }
     else if (d.unstop) { ui.simStop = ui.simStop.filter((x) => String(x) !== d.unstop); renderMissions(); }
-    else if (d.clearPlan !== undefined) { ui.simAdd = []; ui.simStop = []; ui.simSwap = []; optUndo = null; renderAvailable(); renderMissions(); }
-    else if (d.pick) { const [kind, op, k] = d.pick.split("|"); const a = find(kind, op); if (a && !a.comrades.includes(k)) a.comrades.push(k); }
-    else if (d.unpick) { const [kind, op, k] = d.unpick.split("|"); const a = find(kind, op); if (a) a.comrades = a.comrades.filter((x) => String(x) !== k); }
+    else if (d.clearPlan !== undefined) { ui.simAdd = []; ui.simStop = []; renderAvailable(); renderMissions(); }
+    else if (d.pick) { const [op, k] = d.pick.split("|"); const a = find(op); if (a && !a.comrades.includes(k)) a.comrades.push(k); }
+    else if (d.unpick) { const [op, k] = d.unpick.split("|"); const a = find(op); if (a) a.comrades = a.comrades.filter((x) => String(x) !== k); }
     else if (d.autopick) {
-      const [kind, op] = d.autopick.split("|"), a = find(kind, op); if (!a) return;
-      const lim = maxOf(kind, op, a); if (!lim) return;
-      const [need, max, type] = lim;
-      const target = Math.min(a.comrades.length < need ? need : a.comrades.length + 1, max);
-      for (const { c, kept } of candidates(a, type)) { if (a.comrades.length >= target) break; if (!kept) a.comrades.push(String(c.key)); }
+      const a = find(d.autopick), m = availByOp(d.autopick); if (!a || !m) return;
+      const target = a.comrades.length < (m.workersMin ?? 0) ? (m.workersMin ?? 0) : a.comrades.length + 1;
+      for (const { c } of candidates(a)) { if (a.comrades.length >= Math.min(target, m.workersMax ?? target)) break; a.comrades.push(String(c.key)); }
     } else return;
     saveSim(); renderPlan(); renderPlanBar();
   }
+
 
   // ---------- planner ----------
   let planTimer = 0;
@@ -655,18 +540,10 @@
       const again = document.querySelector(`[data-op="${CSS.escape(r.dataset.op)}"]`); if (again) again.focus();
     });
     $("view-missions").addEventListener("click", (e) => {
-      const sw = e.target.closest("[data-plan-swap]");
-      if (sw) { toggleSwap(sw.dataset.planSwap); return; }
       const b = e.target.closest("[data-plan-stop]"); if (!b) return;
       const op = b.dataset.planStop;
       ui.simStop = stopping(op) ? ui.simStop.filter((x) => String(x) !== op) : [...ui.simStop, op];
-      if (stopping(op)) ui.simSwap = ui.simSwap.filter((s) => String(s.op) !== op);   // stopped wins over switched
       saveSim(); renderMissions(); renderPlanBar();
-    });
-    $("comradeList").addEventListener("click", onComradeClick);
-    $("comradeList").addEventListener("change", (e) => {
-      const k = e.target.dataset.keepAct; if (!k) return;
-      ui.keep[k] = e.target.value; saveKeep(); renderComrades();
     });
     $("view-plan").addEventListener("click", onPlanClick);
     $("planBar").addEventListener("click", (e) => { if (e.target.closest("[data-open-plan]")) showTab("plan"); });
