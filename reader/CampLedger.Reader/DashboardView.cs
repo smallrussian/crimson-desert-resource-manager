@@ -46,8 +46,7 @@ public static class DashboardView
                                 double? PerHourAfter, double? PerDayBefore, double? PerDayAfter, double? HoursUntilEmptyAfter);
     public sealed record Simulation(List<SimRow> Reserves, int? Total, int InUseBefore, int InUseAfter, int? FreeBefore, int? FreeAfter,
                                     bool? OperatingBudgetOkAfter, List<PlannedView> Added, List<string> Stopped, List<string> Problems,
-                                    double HoursPerDay, List<PlannedView> Switched);
-    public sealed record OptimizeResult(List<PlanAdd> Add, List<PlanAdd> Swap, List<string> Notes);
+                                    double HoursPerDay);
 
     public sealed record HistoryPoint(DateTimeOffset T, string Source, long? Food, long? Funds, long? Stone, long? Timber, long? Armaments);
 
@@ -175,189 +174,71 @@ public static class DashboardView
         new(c.Name, (c.Slots ?? new()).Select(s => s is null ? null : new CoreSlot(s.Type, s.Percent)).ToList());
 
     /// <summary>
-    /// What-if: the running repeating missions, minus <paramref name="stop"/>, with crews switched as in
-    /// <paramref name="swap"/>, plus available missions with chosen comrades. Rewards use the calc core's bonus rules
-    /// with the chosen comrades' slots. A mission given fewer than its minimum is counted at the minimum, as if the
-    /// rest had no matching skill, and flagged. A mission both stopped and switched counts as stopped.
+    /// What-if: the running repeating missions, minus <paramref name="stop"/>, plus available missions with chosen
+    /// comrades. Rewards use the calc core's bonus rules with the chosen comrades' slots. A mission given fewer than
+    /// its minimum is counted at the minimum, as if the rest had no matching skill, and flagged.
     /// </summary>
-    public static Simulation Simulate(SnapshotLog.State log, IReadOnlyList<PlanAdd> add, IReadOnlyCollection<long> stop, double hoursPerDay,
-                                      IReadOnlyList<PlanAdd>? swap = null)
+    public static Simulation Simulate(SnapshotLog.State log, IReadOnlyList<PlanAdd> add, IReadOnlyCollection<long> stop, double hoursPerDay)
     {
         if (hoursPerDay <= 0 || double.IsNaN(hoursPerDay) || hoursPerDay > 24) hoursPerDay = Calc.DefaultHoursPerDay;
         var save = log.LatestSave;
         int? campLevel = save?.CampLevel;
         var balance = Balance(Newer(log.LatestSave, log.LatestProcess)?.Reserves ?? new Reserves());
-        var missions = save?.Missions ?? new();
-        var running = missions.Select(m => RunningOf(m, campLevel)).ToList();
-        var roster = Roster(save);
+        var running = (save?.Missions ?? new()).Select(m => RunningOf(m, campLevel)).ToList();
+        var roster = (save?.Comrades ?? new()).Where(c => c.CharacterKey is not null)
+                     .GroupBy(c => c.CharacterKey!.Value).ToDictionary(g => g.Key, g => g.First());
         var problems = new List<string>();
-
-        var swaps = (swap ?? Array.Empty<PlanAdd>())
-            .Where(s => !stop.Contains(s.OperationKey))
-            .GroupBy(s => s.OperationKey).ToDictionary(g => g.Key, g => g.First());
-        var freed = stop.Concat(swaps.Keys).ToHashSet();
 
         var before = running.Where(r => r.Recurring).Select(LineOf).ToList();
         var stopped = running.Where(r => r.OperationKey is long k && stop.Contains(k)).ToList();
+        var after = running.Where(r => r.Recurring && !stopped.Contains(r)).Select(LineOf).ToList();
+
         var used = new HashSet<long>();
-        int inUseBefore = running.Sum(r => r.Workers);
-        int inUseAfter = inUseBefore - stopped.Sum(r => r.Workers);
-
-        var after = new List<MissionLine>();
-        var switched = new List<PlannedView>();
-        for (int i = 0; i < running.Count; i++)
-        {
-            var r = running[i];
-            if (stopped.Contains(r)) continue;
-            if (r.OperationKey is long op && swaps.TryGetValue(op, out var s))
-            {
-                var staffed = Staff(missions[i], s.Comrades, roster, used, freed, campLevel);
-                inUseAfter += staffed.View.Workers - r.Workers;
-                switched.Add(staffed.View);
-                if (r.Recurring) after.Add(staffed.Line);
-            }
-            else if (r.Recurring) after.Add(LineOf(r));
-        }
-        foreach (long op in swaps.Keys)
-            if (!running.Any(r => r.OperationKey == op))
-                problems.Add($"mission {op} is no longer running, so its crew cannot be switched");
-
         var added = new List<PlannedView>();
+        int addedWorkers = 0;
         foreach (var a in add)
         {
             var m = save?.AvailableMissions.FirstOrDefault(x => x.OperationKey == a.OperationKey);
             if (m is null) { problems.Add($"mission {a.OperationKey} is no longer available"); continue; }
-            var staffed = Staff(m, a.Comrades, roster, used, freed, campLevel);
-            inUseAfter += staffed.View.Workers;
-            after.Add(staffed.Line);
-            added.Add(staffed.View);
+            var own = new List<string>();
+            var chosen = new List<Comrade>();
+            foreach (long ck in a.Comrades.Distinct())
+            {
+                if (!roster.TryGetValue(ck, out var c)) { own.Add($"comrade {ck} not found"); continue; }
+                if (!used.Add(ck)) { own.Add($"{c.Name} is already picked for another planned mission"); continue; }
+                if (c.OperationKey is long busy && !stop.Contains(busy)) own.Add($"{c.Name} is busy on {c.MissionName}");
+                if (c.Slots is null) own.Add($"{c.Name}: skill slots unknown");
+                chosen.Add(c);
+            }
+            int min = m.WorkersMin ?? chosen.Count, max = m.WorkersMax ?? int.MaxValue;
+            if (chosen.Count < min)
+                own.Add($"needs {min - chosen.Count} more comrade{(min - chosen.Count == 1 ? "" : "s")}; counted as {min} with no matching skill");
+            if (chosen.Count > max) own.Add($"takes at most {max} comrades");
+            int workers = Math.Max(chosen.Count, min);
+            addedWorkers += workers;
+            BonusBreakdown? b = null;
+            if (m.Bonus is { } mb)
+                b = Bonus.Of(new BonusInputs(mb.ConversionPercent, mb.SkillType,
+                    chosen.Any(c => c.Slots is null) ? null : chosen.Select(SlotsOf).ToList(), workers, m.WorkersMin), campLevel);
+            var baseReward = Set(m.Reward);
+            var reward = AllZero(baseReward) ? baseReward : Bonus.Apply(baseReward, b?.Total);
+            var line = new MissionLine(m.Name ?? "", true, workers, m.DurationHours, Set(m.Cost), reward);
+            after.Add(line);
+            added.Add(new PlannedView(a.OperationKey, m.Location ?? m.Name ?? "?", m.Type, workers, m.WorkersMin, m.WorkersMax,
+                b is null ? null : new BonusView(b.Conversion, b.Skill, b.Comrade, b.Total, m.Bonus?.SkillType),
+                Res(reward), PerHour(Calc.NetPerHour(line)), own));
         }
 
         var pb = Calc.PortfolioOf(before, balance, hoursPerDay);
         var pa = Calc.PortfolioOf(after, balance, hoursPerDay);
+        int inUseBefore = running.Sum(r => r.Workers);
+        int inUseAfter = inUseBefore - stopped.Sum(r => r.Workers) + addedWorkers;
         int? total = save?.Workers.Total;
         if (total is int t && inUseAfter > t) problems.Add($"the plan needs {inUseAfter} comrades; you have {t}");
         var rows = ReserveSet<long?>.All.Select(r => new SimRow(Key(r), balance[r], pb.NetPerCycle[r], pa.NetPerCycle[r],
             pb.NetPerHour[r], pa.NetPerHour[r], pb.NetPerDay[r], pa.NetPerDay[r], pa.HoursUntilEmpty[r])).ToList();
         return new Simulation(rows, total, inUseBefore, inUseAfter, total - inUseBefore, total - inUseAfter, pa.OperatingBudgetOk,
-            added, stopped.Select(r => r.Location ?? r.Name).ToList(), problems, hoursPerDay, switched);
-    }
-
-    static Dictionary<long, Comrade> Roster(Snapshot? save) =>
-        (save?.Comrades ?? new()).Where(c => c.CharacterKey is not null)
-            .GroupBy(c => c.CharacterKey!.Value).ToDictionary(g => g.Key, g => g.First());
-
-    /// <summary>
-    /// One mission with a chosen crew: bonus, reward and problems. A comrade is busy unless they are free, already on
-    /// this mission, or on a mission in <paramref name="freed"/> (stopped or switched in the plan).
-    /// </summary>
-    static (PlannedView View, MissionLine Line) Staff(Mission m, IReadOnlyList<long> crew, Dictionary<long, Comrade> roster,
-        HashSet<long> used, HashSet<long> freed, int? campLevel)
-    {
-        var own = new List<string>();
-        var chosen = new List<Comrade>();
-        foreach (long ck in crew.Distinct())
-        {
-            if (!roster.TryGetValue(ck, out var c)) { own.Add($"comrade {ck} not found"); continue; }
-            if (!used.Add(ck)) { own.Add($"{c.Name} is already picked for another mission in the plan"); continue; }
-            if (c.OperationKey is long busy && busy != m.OperationKey && !freed.Contains(busy)) own.Add($"{c.Name} is busy on {c.MissionName}");
-            if (c.Slots is null) own.Add($"{c.Name}: skill slots unknown");
-            chosen.Add(c);
-        }
-        int min = m.WorkersMin ?? chosen.Count, max = m.WorkersMax ?? int.MaxValue;
-        if (chosen.Count < min)
-            own.Add($"needs {min - chosen.Count} more comrade{(min - chosen.Count == 1 ? "" : "s")}; counted as {min} with no matching skill");
-        if (chosen.Count > max) own.Add($"takes at most {max} comrades");
-        int workers = Math.Max(chosen.Count, min);
-        BonusBreakdown? b = null;
-        if (m.Bonus is { } mb)
-            b = Bonus.Of(new BonusInputs(mb.ConversionPercent, mb.SkillType,
-                chosen.Any(c => c.Slots is null) ? null : chosen.Select(SlotsOf).ToList(), workers, m.WorkersMin), campLevel);
-        var baseReward = Set(m.Reward);
-        var reward = AllZero(baseReward) ? baseReward : Bonus.Apply(baseReward, b?.Total);
-        var line = new MissionLine(m.Name ?? "", true, workers, m.DurationHours, Set(m.Cost), reward);
-        var view = new PlannedView(m.OperationKey ?? 0, m.Location ?? m.Name ?? "?", m.Type, workers, m.WorkersMin, m.WorkersMax,
-            b is null ? null : new BonusView(b.Conversion, b.Skill, b.Comrade, b.Total, m.Bonus?.SkillType),
-            Res(reward), PerHour(Calc.NetPerHour(line)), own);
-        return (view, line);
-    }
-
-    /// <summary>
-    /// Suggested crews for the plan (calc core <see cref="Crew.Optimize"/>). Planned missions are always staffed.
-    /// Running repeating missions are re-crewed only when <paramref name="includeRunning"/> is set or they are already
-    /// switched in the plan, and a switch is suggested only when the crew actually changes. Stopped missions release
-    /// their comrades. Comrades in <paramref name="keep"/> are never placed, so they are also taken off any mission the
-    /// optimizer may re-crew. Crew sizes stay as they are (planned missions get at least their minimum).
-    /// </summary>
-    public static OptimizeResult Optimize(SnapshotLog.State log, IReadOnlyList<PlanAdd> add, IReadOnlyCollection<long> stop,
-        IReadOnlyList<PlanAdd> swap, IReadOnlyCollection<long> keep, bool includeRunning)
-    {
-        var save = log.LatestSave;
-        if (save is null) return new OptimizeResult(add.ToList(), swap.ToList(), new() { "no save read yet" });
-        var notes = new List<string>();
-        int level = save.CampLevel ?? 0;
-        if (save.CampLevel is null) notes.Add("camp level unknown, so no skill slots count as unlocked");
-        var roster = Roster(save);
-        var swaps = swap.Where(s => !stop.Contains(s.OperationKey)).GroupBy(s => s.OperationKey).ToDictionary(g => g.Key, g => g.First());
-        var crewNow = roster.Values.Where(c => c.OperationKey is not null)
-            .GroupBy(c => c.OperationKey!.Value).ToDictionary(g => g.Key, g => g.Select(c => c.CharacterKey!.Value).ToList());
-
-        var plan = new List<CrewMission>();
-        var movable = new HashSet<long>(stop);
-        var runningById = new Dictionary<string, Mission>();
-        foreach (var m in save.Missions)
-        {
-            if (m.OperationKey is not long op || stop.Contains(op)) continue;
-            bool switching = swaps.TryGetValue(op, out var s);
-            if (!switching && !(includeRunning && m.Repeat == true)) continue;
-            var current = switching ? s!.Comrades : crewNow.GetValueOrDefault(op) ?? new List<long>();
-            int workers = switching ? Math.Max(s!.Comrades.Distinct().Count(), m.WorkersMin ?? 0) : m.Workers ?? current.Count;
-            string id = "r" + op;
-            plan.Add(new CrewMission(id, m.Bonus?.SkillType, workers, Weight(m), current));
-            runningById[id] = m;
-            movable.Add(op);
-        }
-        var addById = new Dictionary<string, Mission>();
-        foreach (var a in add)
-        {
-            string id = "a" + a.OperationKey;
-            var m = save.AvailableMissions.FirstOrDefault(x => x.OperationKey == a.OperationKey);
-            if (m is null || addById.ContainsKey(id)) continue;
-            plan.Add(new CrewMission(id, m.Bonus?.SkillType, Math.Max(a.Comrades.Distinct().Count(), m.WorkersMin ?? 0), Weight(m), a.Comrades));
-            addById[id] = m;
-        }
-
-        var pool = roster.Values
-            .Where(c => !keep.Contains(c.CharacterKey!.Value) && (c.OperationKey is not long op || movable.Contains(op)))
-            .Select(c => new CrewComrade(c.CharacterKey!.Value,
-                (c.Slots ?? new()).Take(level).Select(x => x is null ? null : new CoreSlot(x.Type, x.Percent)).ToList()))
-            .ToList();
-        var result = Crew.Optimize(plan, pool);
-
-        string NameOf(string id) =>
-            (runningById.GetValueOrDefault(id) ?? addById.GetValueOrDefault(id)) is { } m ? m.Location ?? m.Name ?? id : id;
-        foreach (var (id, n) in result.Short)
-            notes.Add($"{NameOf(id)}: {n} comrade{(n == 1 ? "" : "s")} short, nobody else is free{(keep.Count > 0 ? " who is not kept on hand" : "")}");
-
-        var newAdd = add.Select(a => addById.ContainsKey("a" + a.OperationKey)
-            ? new PlanAdd(a.OperationKey, result.Crews["a" + a.OperationKey].ToList()) : a).ToList();
-        var newSwap = new List<PlanAdd>();
-        foreach (var (id, m) in runningById)
-        {
-            long op = m.OperationKey!.Value;
-            var crew = result.Crews[id];
-            if (crew.ToHashSet().SetEquals(crewNow.GetValueOrDefault(op) ?? new List<long>())) continue;   // same people: no switch
-            newSwap.Add(new PlanAdd(op, crew.ToList()));
-        }
-        return new OptimizeResult(newAdd, newSwap, notes);
-    }
-
-    /// <summary>Base reward per in-game hour, all reserves summed (one unit of any reserve counts the same); 1 when unknown.</summary>
-    static double Weight(Mission m)
-    {
-        var r = Set(m.Reward);
-        if (r is null || m.DurationHours is not double d || d <= 0) return 1;
-        return ReserveSet<long>.All.Sum(k => (double)r[k]) / d;
+            added, stopped.Select(r => r.Location ?? r.Name).ToList(), problems, hoursPerDay);
     }
 
 
