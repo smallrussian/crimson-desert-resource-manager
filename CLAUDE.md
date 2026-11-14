@@ -120,8 +120,9 @@ Mirrors the spreadsheet this replaces, so keep the definitions identical:
 - **Net per hour** = net per cycle divided by mission duration in hours; sum over
   active missions. Guard division by zero (duration of 0 or missing means "unknown",
   not 0).
-- **Net per day** = net per hour times hours per day. Hours per day is a user setting,
-  default 24, and must be labelled as an assumption.
+- **Net per day** = net per hour times 24: one *in-game* day. Mission durations are in
+  in-game hours, so per day is per in-game day, not real time. (Owner decision
+  2026-11-14; this replaced the sheet's hours-played-per-day setting.)
 - **Reserves**: Food, Funds, Stone, Timber, Armaments. Food and Funds are the
   operating budget, so flag a negative there first.
 - **Upgrade planner**: total needed = upgrade cost + one operating cycle of active

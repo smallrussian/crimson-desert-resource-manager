@@ -8,7 +8,6 @@ public sealed record Portfolio(
     ReserveSet<double?> NetPerDay,
     ReserveSet<double?> HoursUntilEmpty,
     bool? OperatingBudgetOk,
-    double HoursPerDay,
     IReadOnlyList<string> Unknowns);
 
 public sealed record WorkerSummary(int? Total, int InUse, int? Free, WorkerState? State);
@@ -28,7 +27,11 @@ public sealed record UpgradePlan(
 /// </summary>
 public static class Calc
 {
-    public const double DefaultHoursPerDay = 24;
+    /// <summary>
+    /// One in-game day. Mission durations and the per-hour nets are in in-game hours, so per day is fixed at 24 of
+    /// them, not a real-time assumption.
+    /// </summary>
+    public const double HoursPerGameDay = 24;
 
     /// <summary>Missions!P:T. Reward minus cost; null if either is unknown.</summary>
     public static ReserveSet<long>? Net(MissionLine m) =>
@@ -76,8 +79,11 @@ public static class Calc
         });
     }
 
-    /// <summary>Portfolio!G. Per-hour net times hours per day (a user setting, labelled as an assumption).</summary>
-    public static ReserveSet<double?> NetPerDay(ReserveSet<double?> perHour, double hoursPerDay = DefaultHoursPerDay)
+    /// <summary>
+    /// Portfolio!G. Per-hour net times hours per day. Defaults to one in-game day (24 in-game hours); the sheet used
+    /// a hours-played setting instead, which mixed real time into in-game rates.
+    /// </summary>
+    public static ReserveSet<double?> NetPerDay(ReserveSet<double?> perHour, double hoursPerDay = HoursPerGameDay)
     {
         if (hoursPerDay <= 0 || double.IsNaN(hoursPerDay))
             throw new ArgumentOutOfRangeException(nameof(hoursPerDay), "hours per day must be positive");
@@ -122,8 +128,7 @@ public static class Calc
         return new WorkerSummary(total, inUse, free, state);
     }
 
-    public static Portfolio PortfolioOf(IReadOnlyCollection<MissionLine> missions, ReserveSet<long?> balance,
-                                        double hoursPerDay = DefaultHoursPerDay)
+    public static Portfolio PortfolioOf(IReadOnlyCollection<MissionLine> missions, ReserveSet<long?> balance)
     {
         var perCycle = NetPerCycle(missions);
         var perHour = TotalNetPerHour(missions);
@@ -137,10 +142,9 @@ public static class Calc
             perCycle,
             perCycle.Map((_, v) => StatusOf(v)),
             perHour,
-            NetPerDay(perHour, hoursPerDay),
+            NetPerDay(perHour),
             perHour.Map((r, v) => HoursUntilEmpty(balance[r], v)),
             OperatingBudgetOk(perCycle),
-            hoursPerDay,
             unknowns);
     }
 

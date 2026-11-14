@@ -33,8 +33,8 @@ your camp data never leaves your PC.
 | History | Reserves over time from past snapshots |
 
 If something can't be read, Camp Ledger says so ("What couldn't be read" at the bottom of
-the window). It never fills in a guessed number. "Per day" uses a hours-played-per-day
-setting you choose (default 24), labelled as an assumption.
+the window). It never fills in a guessed number. "Per day" means per in-game day (24 in-game hours,
+about 1 h 40 min of real play), because mission timers run on the game clock.
 
 ## Install
 
@@ -71,7 +71,8 @@ or removed.
 Camp Ledger checks this repository's GitHub Releases for a new version shortly after it
 starts and every 6 hours. When there is one, click **Update and restart**. It downloads the
 new installer, checks its size and SHA-256 against what GitHub reports, and installs over the
-current version, keeping your snapshots and settings. You can turn automatic checks off in
+current version, keeping your snapshots and settings. To check right away, click **Check for
+updates** at the top of the window, or use the tray menu. You can turn automatic checks off in
 the tray menu.
 
 Game patches need an app update before Camp Ledger can read the new version, so expect a

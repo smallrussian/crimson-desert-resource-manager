@@ -105,6 +105,14 @@ sealed class MainWindow : Form
                         ("Try again", () => { _problem.Visible = false; _web.Visible = true; core.Navigate(_url); }),
                         ("Open log folder", () => Open(ReaderHost.DataDir())));
         };
+        // The page's "Check for updates" button. Only messages from the local dashboard count.
+        core.WebMessageReceived += async (_, e) =>
+        {
+            if (!e.Source.StartsWith(_url, StringComparison.OrdinalIgnoreCase)) return;
+            string? msg;
+            try { msg = e.TryGetWebMessageAsString(); } catch (ArgumentException) { return; }
+            if (msg == "check-updates") await _updater.CheckAsync(manual: true, this);
+        };
         core.Navigate(_url);
     }
 

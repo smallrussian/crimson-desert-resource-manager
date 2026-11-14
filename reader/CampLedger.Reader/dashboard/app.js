@@ -35,7 +35,6 @@
 
   const ui = {
     tab: store.get("tab", "missions"),
-    hpd: store.get("hpd", 24),
     q: "", region: "", role: store.get("role", "all"), fits: store.get("fits", false), sort: store.get("sort", "net"),
     open: new Set(),
     hist: store.get("hist", "funds"),
@@ -70,7 +69,7 @@
   // ---------- data ----------
   async function poll() {
     try {
-      const res = await fetch(`/api/state?hoursPerDay=${encodeURIComponent(ui.hpd)}`, { headers: etag ? { "If-None-Match": etag } : {}, cache: "no-store" });
+      const res = await fetch("/api/state", { headers: etag ? { "If-None-Match": etag } : {}, cache: "no-store" });
       lastOk = Date.now(); failing = false;
       if (res.status === 200) {
         etag = res.headers.get("ETag");
@@ -129,7 +128,7 @@
       return `<article class="res${neg ? " neg" : ""}" title="Net per cycle: ${r.perCycle == null ? "unknown" : nf.format(r.perCycle)}">
         <div class="res-head">${icon(r.key)}<span>${LABEL[r.key]}</span>${r.operatingBudget ? '<span class="tag">BUDGET</span>' : ""}</div>
         <div class="res-bal">${fmt(r.balance)}</div>
-        <div class="res-rate"><span>${rate(r.perHour)}</span><span>${rate(r.perDay, "/day")}</span></div>${warn}
+        <div class="res-rate"><span>${rate(r.perHour)}</span><span>${rate(r.perDay, "/game day")}</span></div>${warn}
       </article>`;
     }).join("");
   }
@@ -151,6 +150,7 @@
     const parts = KEYS.filter((k) => Math.abs(perHour[k]) > 0.0001).map((k) => `<span class="amt">${icon(k, 14)}${rate(perHour[k])}</span>`);
     return parts.length ? `<span class="amts">${parts.join("")}</span>` : '<span class="zero">—</span>';
   }
+  const realDay = () => (view ? hours(24 * view.realSecondsPerGameHour / 3600) : "unknown");
   const realEta = (h) => (h == null ? "" : ` · ≈ ${hours(h * view.realSecondsPerGameHour / 3600)} real`);
 
   // ---------- missions ----------
@@ -334,7 +334,7 @@
     simTimer = setTimeout(runSim, delay);
   }
   async function runSim() {
-    const qs = `hoursPerDay=${encodeURIComponent(ui.hpd)}&add=${encodeURIComponent(encodeCrews(ui.simAdd))}`
+    const qs = `add=${encodeURIComponent(encodeCrews(ui.simAdd))}`
       + `&stop=${encodeURIComponent(ui.simStop.join(","))}&swap=${encodeURIComponent(encodeCrews(ui.simSwap))}`;
     const seq = ++simSeq;
     let result = null;
@@ -470,14 +470,14 @@
       <h2>Effect</h2>
       <div class="stat-line"><span>Comrades free</span><span class="big">${sim.freeBefore ?? "?"} → <span class="${freeCls}">${sim.freeAfter ?? "?"}</span></span>
         <span class="hint">of ${sim.total ?? "?"}</span></div>
-      <div class="table-wrap"><table class="effect"><thead><tr><th>Reserve</th><th>Now /h</th><th>Plan /h</th><th>Change</th><th>Plan /day</th><th>Runs out</th></tr></thead>
+      <div class="table-wrap"><table class="effect"><thead><tr><th>Reserve</th><th>Now /h</th><th>Plan /h</th><th>Change</th><th>Plan /game day</th><th>Runs out</th></tr></thead>
         <tbody>${rows}</tbody></table></div>
       ${problems.length ? `<ul class="problems">${problems.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>` : ""}
       ${ui.simStop.length ? `<h3 style="margin-top:14px">Stopping</h3><div class="crew">${ui.simStop.map((op) => {
           const r = runningByOp(op);
           return `<span class="pick">${esc(r ? (r.location ?? r.name) + (r.type ? " · " + r.type : "") : "mission " + op)}<button data-unstop="${esc(op)}" aria-label="Keep running">×</button></span>`;
         }).join("")}</div>` : ""}
-      <p class="hint">Per-day figures assume ${sim.hoursPerDay} hours of play a day. Totals count repeating missions only.
+      <p class="hint">Per-day figures are per in-game day (24 in-game hours, about ${realDay()} real). Totals count repeating missions only.
         Switching a crew in game may restart that mission's timer; the plan does not count lost progress.</p>
       <div style="margin-top:10px"><button class="btn ghost" data-clear-plan>Clear plan</button></div>
     </div>`;
@@ -622,6 +622,13 @@
 
   // ---------- events ----------
   function wire() {
+    // Only inside the Camp Ledger window (WebView2): the window runs the update check. A plain browser has no updater.
+    const host = window.chrome && window.chrome.webview;
+    if (host) {
+      const b = $("checkUpdates");
+      b.hidden = false;
+      b.addEventListener("click", () => host.postMessage("check-updates"));
+    }
     const tabs = TABS;
     tabs.forEach((t) => $("tab-" + t).addEventListener("click", () => showTab(t)));
     document.querySelector(".tabs").addEventListener("keydown", (e) => {
@@ -684,15 +691,6 @@
       const k = e.target.dataset.plan; if (!k) return;
       ui.plan[k] = e.target.value; store.set("plan", ui.plan);
       clearTimeout(planTimer); planTimer = setTimeout(updatePlan, 200);
-    });
-    const pop = $("settings"), btn = $("settingsBtn");
-    btn.addEventListener("click", () => { pop.hidden = !pop.hidden; btn.setAttribute("aria-expanded", !pop.hidden); if (!pop.hidden) $("hpd").focus(); });
-    document.addEventListener("click", (e) => { if (!pop.hidden && !pop.contains(e.target) && !btn.contains(e.target)) { pop.hidden = true; btn.setAttribute("aria-expanded", false); } });
-    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !pop.hidden) { pop.hidden = true; btn.setAttribute("aria-expanded", false); btn.focus(); } });
-    $("hpd").value = ui.hpd;
-    $("hpd").addEventListener("change", (e) => {
-      const v = Math.min(24, Math.max(1, +e.target.value || 24));
-      e.target.value = v; ui.hpd = v; store.set("hpd", v); etag = null; poll(); queueSim(0);
     });
   }
 

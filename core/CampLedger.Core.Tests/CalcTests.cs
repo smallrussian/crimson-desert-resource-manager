@@ -100,9 +100,10 @@ public class CalcTests
     }
 
     [Fact]
-    public void Net_per_day_uses_the_hours_per_day_setting()
+    public void Net_per_day_is_one_in_game_day_by_default()
     {
         var perHour = new ReserveSet<double?>(10, -2, null, 0, 1);
+        Assert.Equal(new ReserveSet<double?>(240, -48, null, 0, 24), Calc.NetPerDay(perHour));
         Assert.Equal(new ReserveSet<double?>(200, -40, null, 0, 20), Calc.NetPerDay(perHour, 20));
         Assert.Throws<ArgumentOutOfRangeException>(() => Calc.NetPerDay(perHour, 0));
     }
@@ -114,7 +115,6 @@ public class CalcTests
         Assert.Equal(new ReserveSet<Trend?>(Trend.Positive, Trend.Positive, Trend.Positive, Trend.Positive, Trend.BreakEven),
                      p.Status);
         Assert.True(p.OperatingBudgetOk);
-        Assert.Equal(24, p.HoursPerDay);
 
         Assert.Equal(Trend.Negative, Calc.StatusOf(-1));
         Assert.False(Calc.OperatingBudgetOk(new ReserveSet<long?>(5, -1, 0, 0, 0)));

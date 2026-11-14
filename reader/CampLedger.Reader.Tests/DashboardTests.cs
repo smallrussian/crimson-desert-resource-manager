@@ -106,7 +106,7 @@ public class DashboardTests
     {
         var state = new SnapshotLog.State();
         SnapshotLog.Add(state, Save(T0, Glenbright(), Pond()));
-        var v = DashboardView.Build(state, 24, gameRunning: true);
+        var v = DashboardView.Build(state, gameRunning: true);
         var food = v.Reserves.Single(r => r.Key == "food");
         Assert.Equal(1980, food.PerCycle);
         Assert.Equal(1980 / 16.0 * 24, food.PerDay!.Value, 6);
@@ -123,7 +123,7 @@ public class DashboardTests
         var state = new SnapshotLog.State();
         SnapshotLog.Add(state, Save(T0, Glenbright()));
         SnapshotLog.Add(state, new Snapshot { CapturedAt = T0.AddMinutes(5), Source = "process", Reserves = R(1, 2, 3, 4, 5) });
-        var v = DashboardView.Build(state, 24, true);
+        var v = DashboardView.Build(state, true);
         Assert.Equal(2, v.Reserves.Single(r => r.Key == "funds").Balance);
         Assert.Equal("process", v.Status.ReservesSource);
         Assert.Single(v.Running);       // missions still from the save
@@ -135,7 +135,7 @@ public class DashboardTests
     {
         var state = new SnapshotLog.State();
         SnapshotLog.Add(state, Save(T0));
-        var a = DashboardView.Build(state, 24, false).Available.Single();
+        var a = DashboardView.Build(state, false).Available.Single();
         Assert.Equal(4900, a.MinReward!.Food);
         Assert.Equal((4900.0) / 19, a.MinNetPerHour!["food"], 6);
     }
@@ -167,16 +167,6 @@ public class DashboardTests
         Assert.Equal(444, funds.Shortfall);
         Assert.Equal("NotAtCurrentNet", funds.Afford.Kind);   // funds net is negative
         Assert.Equal("Ready", rows.Single(r => r.Key == "food").Afford.Kind);
-    }
-
-    [Fact]
-    public void Bad_hours_per_day_falls_back_to_24()
-    {
-        var state = new SnapshotLog.State();
-        SnapshotLog.Add(state, Save(T0, Glenbright()));
-        Assert.Equal(24, DashboardView.Build(state, 0, false).HoursPerDay);
-        Assert.Equal(24, DashboardView.Build(state, 99, false).HoursPerDay);
-        Assert.Equal(6, DashboardView.Build(state, 6, false).HoursPerDay);
     }
 
     [Fact]
@@ -248,7 +238,7 @@ public class DashboardTests
     [Fact]
     public void Comrade_slots_unlock_up_to_the_camp_level()
     {
-        var v = DashboardView.Build(PlanState(), 24, false);
+        var v = DashboardView.Build(PlanState(), false);
         var evelyn = v.Comrades.Single(c => c.Name == "Evelyn");
         Assert.True(evelyn.Busy);
         Assert.Equal(new[] { true, true, true, true, false }, evelyn.Slots!.Select(s => s!.Unlocked));
@@ -260,7 +250,7 @@ public class DashboardTests
     public void Plan_adds_a_mission_with_chosen_comrades_and_their_bonus()
     {
         var add = new[] { new DashboardView.PlanAdd(856813139, new List<long> { 574, 660, 655, 1002983, 1002435 }) };
-        var sim = DashboardView.Simulate(PlanState(), add, Array.Empty<long>(), 24);
+        var sim = DashboardView.Simulate(PlanState(), add, Array.Empty<long>());
         var a = sim.Added.Single();
         Assert.Equal(40, a.Bonus!.Skill);              // Ashton: Ranching I + II unlocked = 40
         Assert.Equal(80, a.Bonus.Total);
@@ -278,13 +268,13 @@ public class DashboardTests
     public void Plan_flags_busy_and_missing_comrades_and_frees_stopped_ones()
     {
         var state = PlanState();
-        var busy = DashboardView.Simulate(state, new[] { new DashboardView.PlanAdd(856813139, new List<long> { 1002973 }) }, Array.Empty<long>(), 24);
+        var busy = DashboardView.Simulate(state, new[] { new DashboardView.PlanAdd(856813139, new List<long> { 1002973 }) }, Array.Empty<long>());
         var p = busy.Added.Single().Problems;
         Assert.Contains(p, x => x.Contains("Evelyn is busy"));
         Assert.Contains(p, x => x.Contains("needs 4 more"));
         Assert.Equal(5, busy.Added.Single().Workers);   // counted at the minimum
 
-        var stopped = DashboardView.Simulate(state, new[] { new DashboardView.PlanAdd(856813139, new List<long> { 1002973 }) }, new long[] { 3624579346 }, 24);
+        var stopped = DashboardView.Simulate(state, new[] { new DashboardView.PlanAdd(856813139, new List<long> { 1002973 }) }, new long[] { 3624579346 });
         Assert.DoesNotContain(stopped.Added.Single().Problems, x => x.Contains("busy"));
         Assert.Equal(new[] { "Glenbright Farm" }, stopped.Stopped);
         Assert.Equal(-3500, stopped.Reserves.Single(r => r.Key == "funds").PerCycleAfter);   // Glenbright gone (-900), Apiary added (-3,500)
@@ -310,7 +300,7 @@ public class DashboardTests
         // Glenbright with Ashton and Anders instead of Evelyn and Terry: no Farming skill, so 40% instead of 80%.
         var swap = new[] { new DashboardView.PlanAdd(GlenbrightOp, new List<long> { 574, 655 }) };
         var add = new[] { new DashboardView.PlanAdd(ApiaryOp, new List<long> { 1002973, 1002974, 660, 1002983, 1002435 }) };
-        var sim = DashboardView.Simulate(PlanState(), add, Array.Empty<long>(), 24, swap);
+        var sim = DashboardView.Simulate(PlanState(), add, Array.Empty<long>(), swap);
         var g = sim.Switched.Single();
         Assert.Equal(0, g.Bonus!.Skill);
         Assert.Equal(40, g.Bonus.Total);
@@ -326,10 +316,10 @@ public class DashboardTests
     {
         var state = PlanState();
         var swap = new[] { new DashboardView.PlanAdd(GlenbrightOp, new List<long> { 1002973, 574 }) };
-        var ok = DashboardView.Simulate(state, Array.Empty<DashboardView.PlanAdd>(), Array.Empty<long>(), 24, swap);
+        var ok = DashboardView.Simulate(state, Array.Empty<DashboardView.PlanAdd>(), Array.Empty<long>(), swap);
         Assert.Empty(ok.Switched.Single().Problems);   // Evelyn is already on Glenbright, so she is not "busy"
 
-        var both = DashboardView.Simulate(state, Array.Empty<DashboardView.PlanAdd>(), new[] { GlenbrightOp }, 24, swap);
+        var both = DashboardView.Simulate(state, Array.Empty<DashboardView.PlanAdd>(), new[] { GlenbrightOp }, swap);
         Assert.Empty(both.Switched);
         Assert.Equal(new[] { "Glenbright Farm" }, both.Stopped);
     }

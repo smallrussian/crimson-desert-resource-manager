@@ -119,6 +119,9 @@ all reference it and share types. Tests: `core/CampLedger.Core.Tests` (xUnit), r
 2026-11-12. One deliberate difference: the sheet treats a mission with a blank duration as 0 per hour, which
 quietly drops it from the per-hour totals. AGENTS.md says a missing duration means unknown, so the core
 returns null for any reserve that such an active mission changes, and names the mission.
+A second difference (owner, 2026-11-14): the sheet's per day was net per hour times a hours-played-per-day
+setting, which mixed real time into in-game rates. Per day is now one in-game day, net per in-game hour x 24,
+with no setting.
 
 ## Local dashboard instead of a hosted web app (decided 2026-11-12)
 
@@ -138,7 +141,7 @@ opts in to serving on the home network (not done: it listens on localhost only).
 - `DashboardServer` (System.Net.HttpListener, part of .NET, no new dependency): GET only, refuses any Host
   header other than `localhost:5240` (DNS rebinding) and sends a strict Content-Security-Policy. Page files are
   embedded in the exe (`reader/CampLedger.Reader/dashboard/`), so nothing can be served from disk.
-  `GET /api/state?hoursPerDay=` (with ETag, polled every 3 s) and `GET /api/plan?food=&funds=...`.
+  `GET /api/state` (with ETag, polled every 3 s) and `GET /api/plan?food=&funds=...`.
 - `SnapshotLog` follows `snapshots.jsonl`, reading only new bytes. `DashboardView` (pure, tested) builds what
   the page shows with the calc core: reserve balances (live memory when newer than the save), per cycle /
   hour / day, hours until empty, workers, running missions with bonus-included rewards, available missions,
