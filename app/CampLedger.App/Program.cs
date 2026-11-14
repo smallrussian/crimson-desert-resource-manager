@@ -7,7 +7,8 @@ namespace CampLedger.App;
 ///
 ///   CampLedger.exe                       open the window (or bring the running one forward)
 ///   CampLedger.exe watch                 start in the tray (what the launcher ASI runs when the game loads);
-///                                        exits after the game closes unless the window was opened
+///                                        exits after the game closes unless the window was opened;
+///                                        first relaunches itself outside the game's process tree (see Detach)
 ///   CampLedger.exe --install-launcher [--game dir] [--quiet]   make it start with the game
 ///   CampLedger.exe --remove-launcher [--quiet]                 undo that
 ///
@@ -34,6 +35,12 @@ static class Program
             return Launcher.Remove(quiet, owner: null) ? 0 : 1;
 
         bool background = args.Contains("watch") || args.Contains("--background");
+
+        // Started by the launcher ASI as the game's child: hand over to a copy outside the game's process tree,
+        // or Steam shows the game as running for as long as the app stays open.
+        if (args.Contains("watch") && !args.Contains(Detach.Flag) && Detach.TryRelaunch(args))
+            return 0;
+
         using var instance = new Mutex(initiallyOwned: true, InstanceMutex, out bool first);
         _instance = first ? instance : null;
         if (!first)
