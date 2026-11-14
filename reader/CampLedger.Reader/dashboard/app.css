@@ -266,8 +266,26 @@ th:first-child, td:first-child { text-align: left; }
 .btn.small { min-height: 26px; padding: 2px 9px; font-size: .78rem; }
 .row .c-add { display: flex; justify-content: flex-end; }
 .row { grid-template-columns: minmax(180px, 2.2fr) 70px 60px minmax(110px, 1.3fr) minmax(110px, 1.3fr) minmax(110px, 1fr) 84px 18px; }
-.card-foot { display: flex; justify-content: flex-end; }
+.card-foot { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }
 .card.stopping { border-color: var(--crimson); opacity: .75; }
+.card.switching { border-color: var(--gold-soft); }
+
+/* keep on hand */
+.keep { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: .82rem; color: var(--muted); }
+.keep select { max-width: 100%; }
+.comrade.kept { border-color: var(--gold-soft); }
+.kept-tag { color: var(--gold); }
+.pick.kept, .cand.kept { border-style: dashed; }
+.pick.new { background: rgba(201,164,92,.16); }
+.pick .z { color: var(--dim); font-size: .74rem; }
+.planned.swap { border-color: var(--gold-soft); }
+.cards > h3 { margin: 4px 0 -4px; }
+
+/* optimize */
+.optimize { display: grid; gap: 6px; padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid var(--line-soft); }
+.opt-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.check { display: inline-flex; align-items: center; gap: 6px; font-size: .84rem; color: var(--muted); cursor: pointer; }
+.opt-notes { margin: 0; padding-left: 18px; font-size: .86rem; color: var(--muted); }
 
 .effect td.chg { font-weight: 600; }
 .plan-grid { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
